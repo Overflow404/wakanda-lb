@@ -1,5 +1,6 @@
 mod cli_arguments;
 pub(crate) mod forward_service;
+mod request_id;
 
 use crate::cli_arguments::CliArguments;
 use crate::forward_service::forward_service::ForwardService;
@@ -10,36 +11,20 @@ use crate::forward_service::forward_service_response::{
     ForwardServiceError, ForwardServiceResponse,
 };
 use crate::forward_service::reqwest_forward_service::ReqwestForwardService;
+use crate::request_id::{LoadBalancerRequestId, UNKNOWN_REQUEST_ID, X_REQUEST_ID};
 use axum::body::{Body, to_bytes};
 use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Router, routing::get};
 use clap::Parser;
-use http::{HeaderName, StatusCode};
+use http::StatusCode;
 use std::sync::Arc;
-use tower_http::request_id::{
-    MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
-};
+use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::{error, info};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use uuid::Uuid;
-
-pub(crate) const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
-pub(crate) const UNKNOWN_REQUEST_ID: &str = "unknown";
-
-#[derive(Clone, Default)]
-pub(crate) struct AlphaRequestId {}
-
-impl MakeRequestId for AlphaRequestId {
-    fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
-        let request_id = Uuid::new_v4().to_string().parse().unwrap();
-
-        Some(RequestId::new(request_id))
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct ServerState {
@@ -155,7 +140,7 @@ pub(crate) fn router(server_state: ServerState) -> Router {
         .layer(PropagateRequestIdLayer::new(X_REQUEST_ID))
         .layer(SetRequestIdLayer::new(
             X_REQUEST_ID.clone(),
-            AlphaRequestId::default(),
+            LoadBalancerRequestId::default(),
         ))
 }
 
@@ -196,9 +181,12 @@ mod tests {
         ForwardServiceError, ForwardServiceResponse,
     };
     use crate::{ServerState, X_REQUEST_ID, router};
-    use axum::body::{Body, Bytes};
+    use axum::body::{Body, Bytes, to_bytes};
     use axum::http::{Method, Request, StatusCode};
+    use axum::response::Response;
+    use http::{HeaderMap, HeaderValue};
     use mockall::predicate::*;
+    use std::collections::HashMap;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -329,10 +317,8 @@ mod tests {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
             mock.expect_execute().returning(|_| {
                 let mut headers = ForwardServiceRequestHeaders::default();
-                headers
-                    .insert("X-Custom-Header".to_string(), "custom-value".to_string());
-                headers
-                    .insert("Content-Type".to_string(), "application/json".to_string());
+                headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
+                headers.insert("Content-Type".to_string(), "application/json".to_string());
 
                 Ok(ForwardServiceResponse {
                     status: 200,
@@ -596,5 +582,49 @@ mod tests {
 
         let request_id = response.headers().get(X_REQUEST_ID).unwrap();
         assert_eq!(request_id.to_str().unwrap(), custom_request_id);
+    }
+
+    #[tokio::test]
+    async fn test_forward_service_response_to_http_response() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+
+        let forward_response = ForwardServiceResponse {
+            status: 200,
+            headers: headers.into(),
+            body: Bytes::from(r#"{"key":"value"}"#),
+        };
+
+        let response: Response<Body> = forward_response.into();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body_bytes, r#"{"key":"value"}"#.as_bytes());
+    }
+
+    #[test]
+    fn test_forward_service_error_to_status_and_string() {
+        let network_error = ForwardServiceError::Network("Connection refused".into());
+        let invalid_request = ForwardServiceError::InvalidRequest("Bad data".into());
+        let timeout = ForwardServiceError::Timeout;
+
+        let (status, msg): (StatusCode, &str) = network_error.into();
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(msg, "Network error");
+
+        let (status, msg): (StatusCode, &str) = invalid_request.into();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(msg, "Invalid request");
+
+        let (status, msg): (StatusCode, &str) = timeout.into();
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(msg, "Timeout");
     }
 }
