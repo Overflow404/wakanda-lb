@@ -33,44 +33,30 @@ impl ReqwestForwardService {
     }
 }
 
-impl ForwardServiceRequestHttpMethod {
-    fn to_reqwest(&self) -> reqwest::Method {
-        match self {
-            ForwardServiceRequestHttpMethod::Get => reqwest::Method::GET,
-            ForwardServiceRequestHttpMethod::Post => reqwest::Method::POST,
-            ForwardServiceRequestHttpMethod::Put => reqwest::Method::PUT,
-            ForwardServiceRequestHttpMethod::Delete => reqwest::Method::DELETE,
-            ForwardServiceRequestHttpMethod::Patch => reqwest::Method::PATCH,
-        }
-    }
-}
-
 #[async_trait]
 impl ForwardService for ReqwestForwardService {
     async fn execute(
         &self,
-        target_url: &str,
         request: ForwardServiceRequest,
     ) -> Result<ForwardServiceResponse, ForwardServiceError> {
-        let new_url = format!("{}{}", target_url, request.path);
-        info!("Modified url is {}", new_url);
+        info!("Forwarding {:#?}", request);
 
-        let new_request_builder = self
+        let reqwuest_builder = self
             .client
-            .request(request.method.to_reqwest(), &new_url)
+            .request(request.method.into(), request.url)
             .headers(request.headers.into())
             .body(request.body.clone());
 
-        let response = new_request_builder
+        let reqwest_response = reqwuest_builder
             .send()
             .await
             .map_err(ForwardServiceError::from)?;
 
-        let http_status = response.status().as_u16();
+        let http_status = reqwest_response.status().as_u16();
 
-        let headers: ForwardServiceRequestHeaders = response.headers().into();
+        let headers: ForwardServiceRequestHeaders = reqwest_response.headers().into();
 
-        let body = response
+        let body = reqwest_response
             .bytes()
             .await
             .map_err(|e| ForwardServiceError::Network(e.to_string()))?;
@@ -118,7 +104,7 @@ impl From<HeaderMap> for ForwardServiceRequestHeaders {
 impl From<ForwardServiceRequestHeaders> for HeaderMap {
     fn from(h: ForwardServiceRequestHeaders) -> Self {
         let mut header_map = HeaderMap::new();
-        for (k, v) in h.0 {
+        for (k, v) in h.iter() {
             if let (Ok(name), Ok(value)) = (
                 HeaderName::from_bytes(k.as_bytes()),
                 HeaderValue::from_str(&v),
@@ -153,6 +139,18 @@ impl TryFrom<&Method> for ForwardServiceRequestHttpMethod {
     }
 }
 
+impl From<ForwardServiceRequestHttpMethod> for reqwest::Method {
+    fn from(value: ForwardServiceRequestHttpMethod) -> Self {
+        match value {
+            ForwardServiceRequestHttpMethod::Get => reqwest::Method::GET,
+            ForwardServiceRequestHttpMethod::Post => reqwest::Method::POST,
+            ForwardServiceRequestHttpMethod::Put => reqwest::Method::PUT,
+            ForwardServiceRequestHttpMethod::Delete => reqwest::Method::DELETE,
+            ForwardServiceRequestHttpMethod::Patch => reqwest::Method::PATCH,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::forward_service::forward_service_request::ForwardServiceRequestHeaders;
@@ -167,23 +165,26 @@ mod tests {
         let mock_server = MockServer::start().await;
 
         Mock::given(method("GET"))
-            .and(path("/health"))
+            .and(path("/v1/api/user"))
             .respond_with(ResponseTemplate::new(200).set_body_raw("PONG", "application/text"))
             .mount(&mock_server)
             .await;
 
-        let client = ReqwestForwardService::new();
-        let request = ForwardServiceRequest {
+        let forward_service = ReqwestForwardService::new();
+        let forward_service_request = ForwardServiceRequest {
+            url: format!("{}{}", mock_server.uri(), "/v1/api/user".to_string()),
             method: ForwardServiceRequestHttpMethod::Get,
-            path: "/health".to_string(),
             headers: ForwardServiceRequestHeaders::default(),
             body: Bytes::new(),
         };
 
-        let response = client.execute(&mock_server.uri(), request).await.unwrap();
+        let forward_service_response = forward_service
+            .execute(forward_service_request)
+            .await
+            .unwrap();
 
-        assert_eq!(response.status, 200);
-        assert!(response.body.len() > 0);
+        assert_eq!(forward_service_response.status, 200);
+        assert!(forward_service_response.body.len() > 0);
     }
 
     #[tokio::test]
@@ -202,10 +203,10 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = ReqwestForwardService::new();
-        let request = ForwardServiceRequest {
+        let forward_service = ReqwestForwardService::new();
+        let forward_service_request = ForwardServiceRequest {
+            url: format!("{}{}", mock_server.uri(), "/api/data".to_string()),
             method: ForwardServiceRequestHttpMethod::Post,
-            path: "/api/data".to_string(),
             headers: ForwardServiceRequestHeaders::from([
                 ("Authorization".to_string(), "Bearer secret".to_string()),
                 ("Content-Type".to_string(), "text/plain".to_string()),
@@ -213,28 +214,41 @@ mod tests {
             body: Bytes::from(r#"{"key":"value"}"#),
         };
 
-        let response = client.execute(&mock_server.uri(), request).await.unwrap();
+        let forward_service_response = forward_service
+            .execute(forward_service_request)
+            .await
+            .unwrap();
 
-        assert_eq!(response.status, 201);
-        assert_eq!(response.headers.get("x-request-id").unwrap(), "12345");
-        assert_eq!(response.body, Bytes::from("Created"));
+        assert_eq!(forward_service_response.status, 201);
+        assert_eq!(
+            forward_service_response
+                .headers
+                .get("x-request-id")
+                .unwrap(),
+            "12345"
+        );
+        assert_eq!(forward_service_response.body, Bytes::from("Created"));
     }
 
     #[tokio::test]
     async fn test_network_error() {
-        let client = ReqwestForwardService::new();
-        let request = ForwardServiceRequest {
+        let forward_service = ReqwestForwardService::new();
+        let forward_service_request = ForwardServiceRequest {
+            url: format!(
+                "{}{}",
+                "http://unknown:1234".to_string(),
+                "/health".to_string()
+            ),
             method: ForwardServiceRequestHttpMethod::Get,
-            path: "/health".to_string(),
             headers: ForwardServiceRequestHeaders::default(),
             body: Bytes::new(),
         };
 
-        let result = client.execute("http://localhost:9999", request).await;
+        let forward_service_response = forward_service.execute(forward_service_request).await;
 
-        assert!(result.is_err());
+        assert!(forward_service_response.is_err());
         assert!(matches!(
-            result.unwrap_err(),
+            forward_service_response.unwrap_err(),
             ForwardServiceError::Network(_)
         ));
     }
@@ -244,28 +258,33 @@ mod tests {
         let mock_server = MockServer::start().await;
 
         Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(60)))
+            .respond_with(
+                ResponseTemplate::new(200).set_delay(std::time::Duration::from_millis(150)),
+            )
             .mount(&mock_server)
             .await;
 
-        let client = ReqwestForwardService::with_client(
+        let forward_service = ReqwestForwardService::with_client(
             reqwest::Client::builder()
                 .timeout(std::time::Duration::from_millis(100))
                 .build()
                 .unwrap(),
         );
 
-        let request = ForwardServiceRequest {
+        let forward_service_request = ForwardServiceRequest {
+            url: format!("{}{}", mock_server.uri(), "/slow".to_string()),
             method: ForwardServiceRequestHttpMethod::Get,
-            path: "/slow".to_string(),
             headers: ForwardServiceRequestHeaders::default(),
             body: Bytes::new(),
         };
 
-        let result = client.execute(&mock_server.uri(), request).await;
+        let forward_service_response = forward_service.execute(forward_service_request).await;
 
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ForwardServiceError::Timeout));
+        assert!(forward_service_response.is_err());
+        assert!(matches!(
+            forward_service_response.unwrap_err(),
+            ForwardServiceError::Timeout
+        ));
     }
 
     #[tokio::test]
@@ -285,16 +304,19 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let client = ReqwestForwardService::new();
-            let request = ForwardServiceRequest {
+            let forward_service = ReqwestForwardService::new();
+            let forward_service_request = ForwardServiceRequest {
+                url: format!("{}{}", mock_server.uri(), "/health".to_string()),
                 method: method_enum,
-                path: "/health".to_string(),
                 headers: ForwardServiceRequestHeaders::default(),
                 body: Bytes::new(),
             };
 
-            let response = client.execute(&mock_server.uri(), request).await.unwrap();
-            assert_eq!(response.status, 200);
+            let forward_service_response = forward_service
+                .execute(forward_service_request)
+                .await
+                .unwrap();
+            assert_eq!(forward_service_response.status, 200);
         }
     }
 
@@ -312,20 +334,32 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = ReqwestForwardService::new();
-        let request = ForwardServiceRequest {
+        let forward_service = ReqwestForwardService::new();
+        let forward_service_request = ForwardServiceRequest {
+            url: format!("{}{}", mock_server.uri(), "/".to_string()),
             method: ForwardServiceRequestHttpMethod::Get,
-            path: "/".to_string(),
             headers: ForwardServiceRequestHeaders::default(),
             body: Bytes::new(),
         };
 
-        let response = client.execute(&mock_server.uri(), request).await.unwrap();
+        let forward_service_response = forward_service
+            .execute(forward_service_request)
+            .await
+            .unwrap();
 
         assert_eq!(
-            response.headers.get("x-custom-header").unwrap(),
+            forward_service_response
+                .headers
+                .get("x-custom-header")
+                .unwrap(),
             "custom-value"
         );
-        assert_eq!(response.headers.get("content-type").unwrap(), "text/plain");
+        assert_eq!(
+            forward_service_response
+                .headers
+                .get("content-type")
+                .unwrap(),
+            "text/plain"
+        );
     }
 }

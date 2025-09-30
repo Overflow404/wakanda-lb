@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{self, Display},
+    ops::{Deref, DerefMut},
 };
 
 use bytes::Bytes;
@@ -10,14 +11,28 @@ pub struct ForwardServiceRequestHeaders(pub HashMap<String, String>);
 
 impl ForwardServiceRequestHeaders {
     pub fn get(&self, key: &str) -> Option<&String> {
-        self.0.get(key)
+        HashMap::get(self, key)
+    }
+}
+
+impl Deref for ForwardServiceRequestHeaders {
+    type Target = HashMap<String, String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ForwardServiceRequestHeaders {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ForwardServiceRequest {
     pub method: ForwardServiceRequestHttpMethod,
-    pub path: String,
+    pub url: String,
     pub headers: ForwardServiceRequestHeaders,
     pub body: Bytes,
 }

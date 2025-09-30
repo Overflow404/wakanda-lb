@@ -19,7 +19,4 @@ pub enum ForwardServiceError {
 
     #[error("Timeout")]
     Timeout,
-
-    #[error("Server error: {status}")]
-    ServerError { status: u16 },
 }

@@ -9,7 +9,6 @@ use crate::forward_service::forward_service_response::ForwardServiceResponse;
 pub trait ForwardService: Send + Sync {
     async fn execute(
         &self,
-        target_url: &str,
         request: ForwardServiceRequest,
     ) -> Result<ForwardServiceResponse, ForwardServiceError>;
 }
