@@ -57,16 +57,6 @@ async fn forward_endpoint(
 
     let (parts, body) = request.into_parts();
 
-    let headers = parts
-        .headers
-        .iter()
-        .filter_map(|(k, v)| {
-            v.to_str()
-                .ok()
-                .map(|v_str| (k.as_str().to_string(), v_str.to_string()))
-        })
-        .collect();
-
     let bytes = match to_bytes(body, usize::MAX).await {
         Ok(b) => b,
         Err(err) => {
@@ -80,12 +70,12 @@ async fn forward_endpoint(
     };
 
     let response = forward_service
-        .send(
+        .execute(
             &state.target_servers_base_url,
             ForwardServiceRequest {
                 method: (&parts.method).into(),
                 path: parts.uri.path().to_string(),
-                headers,
+                headers: parts.headers.into(),
                 body: bytes,
             },
         )
@@ -212,7 +202,7 @@ mod tests {
 
     fn build_success_mock() -> impl FnOnce(&mut MockForwardService) {
         |mock: &mut MockForwardService| {
-            mock.expect_send().returning(|_, _| {
+            mock.expect_execute().returning(|_, _| {
                 Ok(ForwardServiceResponse {
                     status: 200,
                     headers: HashMap::new(),
@@ -268,7 +258,7 @@ mod tests {
     async fn forward_endpoint_forwards_get_request() {
         let target_url = String::from("http://target.com");
         let router = build_router_with_mock(target_url.clone(), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .with(eq(target_url), always())
                 .times(1)
                 .returning(|_, _| {
@@ -302,7 +292,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_preserves_response_status() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send().returning(|_, _| {
+            mock.expect_execute().returning(|_, _| {
                 Ok(ForwardServiceResponse {
                     status: 201,
                     headers: HashMap::new(),
@@ -322,7 +312,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_preserves_response_headers() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send().returning(|_, _| {
+            mock.expect_execute().returning(|_, _| {
                 let mut headers = HashMap::new();
                 headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
                 headers.insert("Content-Type".to_string(), "application/json".to_string());
@@ -355,7 +345,7 @@ mod tests {
         let expected_body = r#"{"data": "test"}"#;
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
             let body_clone = expected_body.to_string();
-            mock.expect_send().returning(move |_, _| {
+            mock.expect_execute().returning(move |_, _| {
                 Ok(ForwardServiceResponse {
                     status: 200,
                     headers: HashMap::new(),
@@ -379,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_forwards_request_headers() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .withf(|_, req| {
                     req.headers.get("authorization") == Some(&"Bearer token".to_string())
                         && req.headers.get("content-type") == Some(&"application/json".to_string())
@@ -413,7 +403,7 @@ mod tests {
         let request_body = r#"{"key": "value"}"#;
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
             let expected_body = request_body.to_string();
-            mock.expect_send()
+            mock.expect_execute()
                 .withf(move |_, req| req.body == Bytes::from(expected_body.clone()))
                 .returning(|_, _| {
                     Ok(ForwardServiceResponse {
@@ -441,7 +431,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_forwards_request_path() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .withf(|_, req| req.path == "/api/users")
                 .returning(|_, _| {
                     Ok(ForwardServiceResponse {
@@ -476,7 +466,7 @@ mod tests {
         ] {
             let router = build_router_with_mock(String::from("http://target.com"), |mock| {
                 let expected_method = method_str.to_string();
-                mock.expect_send()
+                mock.expect_execute()
                     .withf(move |_, req| req.method.to_string() == expected_method)
                     .returning(|_, _| {
                         Ok(ForwardServiceResponse {
@@ -510,7 +500,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_handles_network_error() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send().returning(|_, _| {
+            mock.expect_execute().returning(|_, _| {
                 Err(ForwardServiceError::Network(
                     "Connection refused".to_string(),
                 ))
@@ -528,7 +518,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_handles_timeout_error() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .returning(|_, _| Err(ForwardServiceError::Timeout));
         });
 
@@ -543,7 +533,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_handles_invalid_request_error() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .returning(|_, _| Err(ForwardServiceError::InvalidRequest("Bad URL".to_string())));
         });
 
@@ -558,7 +548,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_handles_server_error() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .returning(|_, _| Err(ForwardServiceError::ServerError { status: 500 }));
         });
 
@@ -573,7 +563,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_handles_custom_server_error_status() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
-            mock.expect_send()
+            mock.expect_execute()
                 .returning(|_, _| Err(ForwardServiceError::ServerError { status: 503 }));
         });
 

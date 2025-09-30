@@ -7,7 +7,7 @@ use crate::forward_service::forward_service_response::ForwardServiceResponse;
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait ForwardService: Send + Sync {
-    async fn send(
+    async fn execute(
         &self,
         target_url: &str,
         request: ForwardServiceRequest,
