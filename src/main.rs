@@ -3,9 +3,11 @@ pub(crate) mod forward_service;
 
 use crate::cli_arguments::CliArguments;
 use crate::forward_service::forward_service::ForwardService;
-use crate::forward_service::forward_service_request::ForwardServiceRequest;
+use crate::forward_service::forward_service_request::{
+    ForwardServiceRequest, ForwardServiceRequestHttpMethod,
+};
 use crate::forward_service::forward_service_response::ForwardServiceError;
-use crate::forward_service::simple_forward_service::SimpleForwardService;
+use crate::forward_service::reqwest_forward_service::ReqwestForwardService;
 use axum::body::{Body, to_bytes};
 use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
@@ -69,11 +71,16 @@ async fn forward_endpoint(
         }
     };
 
+    let method: ForwardServiceRequestHttpMethod = match (&parts.method).try_into() {
+        Ok(method) => method,
+        Err(err) => return err.into_response(),
+    };
+
     let response = forward_service
         .execute(
             &state.target_servers_base_url,
             ForwardServiceRequest {
-                method: (&parts.method).into(),
+                method,
                 path: parts.uri.path().to_string(),
                 headers: parts.headers.into(),
                 body: bytes,
@@ -161,7 +168,7 @@ async fn main() {
 
     info!("Server started on port {}", args.port);
 
-    let forward_service = Arc::new(SimpleForwardService::new());
+    let forward_service = Arc::new(ReqwestForwardService::new());
     let target_servers_base_url = String::from(args.target_servers_base_url);
 
     let state = ServerState {

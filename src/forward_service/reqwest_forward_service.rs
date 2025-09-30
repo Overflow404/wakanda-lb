@@ -1,19 +1,25 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use axum::response::IntoResponse;
+use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
+use tracing::info;
 
 use crate::forward_service::{
     forward_service::ForwardService,
-    forward_service_request::{ForwardServiceRequest, ForwardServiceRequestHttpMethod},
+    forward_service_request::{
+        ForwardServiceRequest, ForwardServiceRequestError, ForwardServiceRequestHeaders,
+        ForwardServiceRequestHttpMethod,
+    },
     forward_service_response::{ForwardServiceError, ForwardServiceResponse},
 };
 
 #[derive(Clone)]
-pub struct SimpleForwardService {
+pub struct ReqwestForwardService {
     client: reqwest::Client,
 }
 
-impl SimpleForwardService {
+impl ReqwestForwardService {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::builder()
@@ -42,13 +48,14 @@ impl ForwardServiceRequestHttpMethod {
 }
 
 #[async_trait]
-impl ForwardService for SimpleForwardService {
+impl ForwardService for ReqwestForwardService {
     async fn execute(
         &self,
         target_url: &str,
         request: ForwardServiceRequest,
     ) -> Result<ForwardServiceResponse, ForwardServiceError> {
         let url = format!("{}{}", target_url, request.path);
+        info!("New url is {}", url);
 
         let req_builder = self
             .client
@@ -56,15 +63,10 @@ impl ForwardService for SimpleForwardService {
             .headers(request.headers.into())
             .body(request.body.clone());
 
-        let response = req_builder.send().await.map_err(|e| {
-            if e.is_timeout() {
-                ForwardServiceError::Timeout
-            } else if e.is_connect() || e.is_request() {
-                ForwardServiceError::Network(e.to_string())
-            } else {
-                ForwardServiceError::InvalidRequest(e.to_string())
-            }
-        })?;
+        let response = req_builder
+            .send()
+            .await
+            .map_err(ForwardServiceError::from)?;
 
         let status = response.status().as_u16();
 
@@ -87,6 +89,66 @@ impl ForwardService for SimpleForwardService {
     }
 }
 
+impl From<reqwest::Error> for ForwardServiceError {
+    fn from(err: reqwest::Error) -> Self {
+        if err.is_timeout() {
+            ForwardServiceError::Timeout
+        } else if err.is_connect() || err.is_request() {
+            ForwardServiceError::Network(err.to_string())
+        } else {
+            ForwardServiceError::InvalidRequest(err.to_string())
+        }
+    }
+}
+
+impl From<HeaderMap> for ForwardServiceRequestHeaders {
+    fn from(headers: HeaderMap) -> Self {
+        let map = headers
+            .iter()
+            .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
+            .collect();
+        ForwardServiceRequestHeaders(map)
+    }
+}
+
+impl From<ForwardServiceRequestHeaders> for HeaderMap {
+    fn from(h: ForwardServiceRequestHeaders) -> Self {
+        let mut header_map = HeaderMap::new();
+        for (k, v) in h.0 {
+            if let (Ok(name), Ok(value)) = (
+                HeaderName::from_bytes(k.as_bytes()),
+                HeaderValue::from_str(&v),
+            ) {
+                header_map.insert(name, value);
+            }
+        }
+        header_map
+    }
+}
+
+impl IntoResponse for ForwardServiceRequestError {
+    fn into_response(self) -> axum::response::Response {
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
+}
+
+impl TryFrom<&Method> for ForwardServiceRequestHttpMethod {
+    type Error = ForwardServiceRequestError;
+
+    fn try_from(value: &Method) -> Result<Self, Self::Error> {
+        match *value {
+            Method::GET => Ok(ForwardServiceRequestHttpMethod::Get),
+            Method::POST => Ok(ForwardServiceRequestHttpMethod::Post),
+            Method::PUT => Ok(ForwardServiceRequestHttpMethod::Put),
+            Method::DELETE => Ok(ForwardServiceRequestHttpMethod::Delete),
+            Method::PATCH => Ok(ForwardServiceRequestHttpMethod::Patch),
+            _ => Err(ForwardServiceRequestError::UnsupportedMethod(
+                value.to_string(),
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::forward_service::forward_service_request::ForwardServiceRequestHeaders;
@@ -106,7 +168,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = SimpleForwardService::new();
+        let client = ReqwestForwardService::new();
         let request = ForwardServiceRequest {
             method: ForwardServiceRequestHttpMethod::Get,
             path: "/health".to_string(),
@@ -136,7 +198,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = SimpleForwardService::new();
+        let client = ReqwestForwardService::new();
         let request = ForwardServiceRequest {
             method: ForwardServiceRequestHttpMethod::Post,
             path: "/api/data".to_string(),
@@ -156,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_network_error() {
-        let client = SimpleForwardService::new();
+        let client = ReqwestForwardService::new();
         let request = ForwardServiceRequest {
             method: ForwardServiceRequestHttpMethod::Get,
             path: "/health".to_string(),
@@ -182,7 +244,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = SimpleForwardService::with_client(
+        let client = ReqwestForwardService::with_client(
             reqwest::Client::builder()
                 .timeout(std::time::Duration::from_millis(100))
                 .build()
@@ -219,7 +281,7 @@ mod tests {
                 .mount(&mock_server)
                 .await;
 
-            let client = SimpleForwardService::new();
+            let client = ReqwestForwardService::new();
             let request = ForwardServiceRequest {
                 method: method_enum,
                 path: "/health".to_string(),
@@ -246,7 +308,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let client = SimpleForwardService::new();
+        let client = ReqwestForwardService::new();
         let request = ForwardServiceRequest {
             method: ForwardServiceRequestHttpMethod::Get,
             path: "/".to_string(),
