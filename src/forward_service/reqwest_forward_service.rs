@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use axum::response::IntoResponse;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
@@ -54,27 +52,23 @@ impl ForwardService for ReqwestForwardService {
         target_url: &str,
         request: ForwardServiceRequest,
     ) -> Result<ForwardServiceResponse, ForwardServiceError> {
-        let url = format!("{}{}", target_url, request.path);
-        info!("New url is {}", url);
+        let new_url = format!("{}{}", target_url, request.path);
+        info!("Modified url is {}", new_url);
 
-        let req_builder = self
+        let new_request_builder = self
             .client
-            .request(request.method.to_reqwest(), &url)
+            .request(request.method.to_reqwest(), &new_url)
             .headers(request.headers.into())
             .body(request.body.clone());
 
-        let response = req_builder
+        let response = new_request_builder
             .send()
             .await
             .map_err(ForwardServiceError::from)?;
 
-        let status = response.status().as_u16();
+        let http_status = response.status().as_u16();
 
-        let headers: HashMap<String, String> = response
-            .headers()
-            .iter()
-            .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
-            .collect();
+        let headers: ForwardServiceRequestHeaders = response.headers().into();
 
         let body = response
             .bytes()
@@ -82,7 +76,7 @@ impl ForwardService for ReqwestForwardService {
             .map_err(|e| ForwardServiceError::Network(e.to_string()))?;
 
         Ok(ForwardServiceResponse {
-            status,
+            status: http_status,
             headers,
             body,
         })
@@ -98,6 +92,16 @@ impl From<reqwest::Error> for ForwardServiceError {
         } else {
             ForwardServiceError::InvalidRequest(err.to_string())
         }
+    }
+}
+
+impl From<&HeaderMap> for ForwardServiceRequestHeaders {
+    fn from(headers: &HeaderMap) -> Self {
+        let map = headers
+            .iter()
+            .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
+            .collect();
+        ForwardServiceRequestHeaders(map)
     }
 }
 

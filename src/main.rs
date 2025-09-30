@@ -93,7 +93,7 @@ async fn forward_endpoint(
             let mut response = Response::builder()
                 .status(StatusCode::from_u16(forward_resp.status).unwrap_or(StatusCode::OK));
 
-            for (k, v) in forward_resp.headers.iter() {
+            for (k, v) in forward_resp.headers.0.iter() {
                 response = response.header(k, v);
             }
 
@@ -183,6 +183,7 @@ async fn main() {
 mod tests {
 
     use crate::forward_service::forward_service::MockForwardService;
+    use crate::forward_service::forward_service_request::ForwardServiceRequestHeaders;
     use crate::forward_service::forward_service_response::{
         ForwardServiceError, ForwardServiceResponse,
     };
@@ -190,7 +191,6 @@ mod tests {
     use axum::body::{Body, Bytes};
     use axum::http::{Method, Request, StatusCode};
     use mockall::predicate::*;
-    use std::collections::HashMap;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -212,7 +212,7 @@ mod tests {
             mock.expect_execute().returning(|_, _| {
                 Ok(ForwardServiceResponse {
                     status: 200,
-                    headers: HashMap::new(),
+                    headers: ForwardServiceRequestHeaders::default(),
                     body: Bytes::from("OK"),
                 })
             });
@@ -271,7 +271,7 @@ mod tests {
                 .returning(|_, _| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: HashMap::new(),
+                        headers: ForwardServiceRequestHeaders::default(),
                         body: Bytes::from("Success"),
                     })
                 });
@@ -302,7 +302,7 @@ mod tests {
             mock.expect_execute().returning(|_, _| {
                 Ok(ForwardServiceResponse {
                     status: 201,
-                    headers: HashMap::new(),
+                    headers: ForwardServiceRequestHeaders::default(),
                     body: Bytes::from("Created"),
                 })
             });
@@ -320,9 +320,13 @@ mod tests {
     async fn forward_endpoint_preserves_response_headers() {
         let router = build_router_with_mock(String::from("http://target.com"), |mock| {
             mock.expect_execute().returning(|_, _| {
-                let mut headers = HashMap::new();
-                headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
-                headers.insert("Content-Type".to_string(), "application/json".to_string());
+                let mut headers = ForwardServiceRequestHeaders::default();
+                headers
+                    .0
+                    .insert("X-Custom-Header".to_string(), "custom-value".to_string());
+                headers
+                    .0
+                    .insert("Content-Type".to_string(), "application/json".to_string());
 
                 Ok(ForwardServiceResponse {
                     status: 200,
@@ -355,7 +359,7 @@ mod tests {
             mock.expect_execute().returning(move |_, _| {
                 Ok(ForwardServiceResponse {
                     status: 200,
-                    headers: HashMap::new(),
+                    headers: ForwardServiceRequestHeaders::default(),
                     body: Bytes::from(body_clone.clone()),
                 })
             });
@@ -384,7 +388,7 @@ mod tests {
                 .returning(|_, _| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: HashMap::new(),
+                        headers: ForwardServiceRequestHeaders::default(),
                         body: Bytes::new(),
                     })
                 });
@@ -415,7 +419,7 @@ mod tests {
                 .returning(|_, _| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: HashMap::new(),
+                        headers: ForwardServiceRequestHeaders::default(),
                         body: Bytes::new(),
                     })
                 });
@@ -443,7 +447,7 @@ mod tests {
                 .returning(|_, _| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: HashMap::new(),
+                        headers: ForwardServiceRequestHeaders::default(),
                         body: Bytes::new(),
                     })
                 });
@@ -478,7 +482,7 @@ mod tests {
                     .returning(|_, _| {
                         Ok(ForwardServiceResponse {
                             status: 200,
-                            headers: HashMap::new(),
+                            headers: ForwardServiceRequestHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
