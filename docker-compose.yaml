@@ -1,0 +1,48 @@
+services:
+  dummy_server_base:
+    container_name: dummy_server_base
+    image: dummy-backend:latest
+    build: ./dummy-backend
+    ports:
+      - "9000:9000"
+    command: ["/app/dummy-backend", "--port", "9000"]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9000"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+  dummy_server_1:
+    container_name: dummy_server_1
+    image: dummy-backend:latest
+    ports:
+      - "9001:9000"
+    command: ["/app/dummy-backend", "--port", "9000"]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9000"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+  load-balancer:
+    container_name: load-balancer
+    image: load-balancer:latest
+    build: .
+    ports:
+      - "3000:3000"
+    command:
+      [
+        "/app/load-balancer",
+        "--port",
+        "3000",
+        "--target-servers-base-url",
+        "http://dummy_server_base:9000",
+      ]
+    depends_on:
+      dummy_server_base:
+        condition: service_healthy
+      dummy_server_1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "3000"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
