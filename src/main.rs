@@ -181,12 +181,11 @@ mod tests {
         ForwardServiceError, ForwardServiceResponse,
     };
     use crate::{ServerState, X_REQUEST_ID, router};
-    use axum::body::{Body, Bytes, to_bytes};
+    use axum::body::{Body, Bytes};
     use axum::http::{Method, Request, StatusCode};
     use axum::response::Response;
     use http::{HeaderMap, HeaderValue};
     use mockall::predicate::*;
-    use std::collections::HashMap;
     use std::sync::Arc;
     use tower::ServiceExt;
 
