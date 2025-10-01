@@ -3,7 +3,7 @@ pub(crate) mod forward_service;
 pub(crate) mod request_id;
 pub(crate) mod select_server_service;
 
-use crate::cli_arguments::CliArguments;
+use crate::cli_arguments::{CliArguments, RoutingPolicy};
 use crate::forward_service::forward_service::ForwardService;
 use crate::forward_service::forward_service_request::{
     ForwardServiceRequest, ForwardServiceRequestHttpMethod,
@@ -13,6 +13,7 @@ use crate::forward_service::forward_service_response::{
 };
 use crate::forward_service::reqwest_forward_service::ReqwestForwardService;
 use crate::request_id::{LoadBalancerRequestId, UNKNOWN_REQUEST_ID, X_REQUEST_ID};
+use crate::select_server_service::random_select_server_service::RandomSelectServerService;
 use crate::select_server_service::round_robin_select_server_service::RoundRobinSelectServerService;
 use crate::select_server_service::select_server_service::SelectServerService;
 use crate::select_server_service::select_server_service_request::SelectServerServiceRequest;
@@ -173,7 +174,14 @@ async fn main() {
     info!("Server started on port {}", args.port);
 
     let forward_service = Arc::new(ReqwestForwardService::default());
-    let select_server_service = Arc::new(RoundRobinSelectServerService::new(args.target_servers));
+
+    let select_server_service: Arc<dyn SelectServerService + Send + Sync> =
+        match args.routing_policy {
+            RoutingPolicy::RoundRobin => {
+                Arc::new(RoundRobinSelectServerService::new(args.target_servers))
+            }
+            RoutingPolicy::Random => Arc::new(RandomSelectServerService::new(args.target_servers)),
+        };
 
     let state = ServerState {
         forward_service,

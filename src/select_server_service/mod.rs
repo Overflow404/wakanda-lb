@@ -1,3 +1,4 @@
+pub mod random_select_server_service;
 pub mod round_robin_select_server_service;
 pub mod select_server_service;
 pub mod select_server_service_error;

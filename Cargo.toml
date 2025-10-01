@@ -20,6 +20,7 @@ hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", 
 bytes = "1.10.1"
 thiserror = "2.0.17"
 wiremock = "0.6.5"
+rand = "0.9.2"
 
 [dev-dependencies]
 mockall = {version = "0.13.1"}

@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use rand::Rng;
+
 use crate::select_server_service::{
     select_server_service::SelectServerService,
     select_server_service_error::SelectServerServiceError,
@@ -7,13 +9,13 @@ use crate::select_server_service::{
     select_server_service_response::SelectServerServiceResponse,
 };
 
-pub struct RoundRobinSelectServerService {
+pub struct RandomSelectServerService {
     target_servers: Vec<String>,
     current_server_index: AtomicUsize,
 }
 
-impl RoundRobinSelectServerService {
-    pub fn new(target_servers: Vec<String>) -> RoundRobinSelectServerService {
+impl RandomSelectServerService {
+    pub fn new(target_servers: Vec<String>) -> RandomSelectServerService {
         Self {
             target_servers,
             current_server_index: AtomicUsize::new(0),
@@ -21,7 +23,7 @@ impl RoundRobinSelectServerService {
     }
 }
 
-impl SelectServerService for RoundRobinSelectServerService {
+impl SelectServerService for RandomSelectServerService {
     fn execute(
         &self,
         _request: SelectServerServiceRequest,
@@ -30,10 +32,12 @@ impl SelectServerService for RoundRobinSelectServerService {
             return Err(SelectServerServiceError::NoOneIsAlive);
         }
 
-        let index =
-            self.current_server_index.fetch_add(1, Ordering::SeqCst) % self.target_servers.len();
+        let random_index = rand::rng().random_range(0..self.target_servers.len());
+        self.current_server_index
+            .store(random_index, Ordering::Relaxed);
+
         Ok(SelectServerServiceResponse {
-            server: self.target_servers[index].clone(),
+            server: self.target_servers[random_index].clone(),
         })
     }
 }
@@ -41,7 +45,7 @@ impl SelectServerService for RoundRobinSelectServerService {
 #[cfg(test)]
 mod tests {
     use crate::select_server_service::{
-        round_robin_select_server_service::RoundRobinSelectServerService,
+        random_select_server_service::RandomSelectServerService,
         select_server_service::SelectServerService,
         select_server_service_error::SelectServerServiceError,
         select_server_service_request::SelectServerServiceRequest,
@@ -49,7 +53,7 @@ mod tests {
 
     #[test]
     fn should_return_an_error_if_empty_targets() {
-        let service = RoundRobinSelectServerService::new(Vec::new());
+        let service = RandomSelectServerService::new(Vec::new());
 
         let error = service
             .execute(SelectServerServiceRequest {})
@@ -64,35 +68,18 @@ mod tests {
         let server1 = String::from("server1");
         let server2 = String::from("server2");
 
-        let service =
-            RoundRobinSelectServerService::new(Vec::from([server1.clone(), server2.clone()]));
+        let service = RandomSelectServerService::new(Vec::from([server1.clone(), server2.clone()]));
 
-        let mut result = service
-            .execute(SelectServerServiceRequest {})
-            .unwrap()
-            .server;
+        let result = service.execute(SelectServerServiceRequest {});
+        let selected = result.unwrap().server;
+        assert!(selected == server1 || selected == server2);
 
-        assert_eq!(result, server1);
+        let result = service.execute(SelectServerServiceRequest {});
+        let selected = result.unwrap().server;
+        assert!(selected == server1 || selected == server2);
 
-        result = service
-            .execute(SelectServerServiceRequest {})
-            .unwrap()
-            .server;
-
-        assert_eq!(result, server2);
-
-        result = service
-            .execute(SelectServerServiceRequest {})
-            .unwrap()
-            .server;
-
-        assert_eq!(result, server1);
-
-        result = service
-            .execute(SelectServerServiceRequest {})
-            .unwrap()
-            .server;
-
-        assert_eq!(result, server2);
+        let result = service.execute(SelectServerServiceRequest {});
+        let selected = result.unwrap().server;
+        assert!(selected == server1 || selected == server2);
     }
 }

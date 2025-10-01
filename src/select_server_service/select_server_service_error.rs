@@ -1,4 +1,4 @@
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum SelectServerServiceError {
     #[error("There are zero healthy target servers")]
     NoOneIsAlive,
