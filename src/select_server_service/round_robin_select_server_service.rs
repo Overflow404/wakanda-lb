@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use crate::select_server_service::{
     select_server_service::SelectServerService,
@@ -8,12 +11,12 @@ use crate::select_server_service::{
 };
 
 pub struct RoundRobinSelectServerService {
-    target_servers: Vec<String>,
+    target_servers: Arc<RwLock<Vec<String>>>,
     current_server_index: AtomicUsize,
 }
 
 impl RoundRobinSelectServerService {
-    pub fn new(target_servers: Vec<String>) -> RoundRobinSelectServerService {
+    pub fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RoundRobinSelectServerService {
         Self {
             target_servers,
             current_server_index: AtomicUsize::new(0),
@@ -26,20 +29,35 @@ impl SelectServerService for RoundRobinSelectServerService {
         &self,
         _request: SelectServerServiceRequest,
     ) -> Result<SelectServerServiceResponse, SelectServerServiceError> {
-        if self.target_servers.is_empty() {
+        let target_servers = match self.target_servers.read() {
+            Ok(servers) => servers,
+            Err(_) => return Err(SelectServerServiceError::PoisonedRead),
+        };
+
+        if target_servers.is_empty() {
             return Err(SelectServerServiceError::NoOneIsAlive);
         }
 
-        let index =
-            self.current_server_index.fetch_add(1, Ordering::SeqCst) % self.target_servers.len();
+        let len = target_servers.len();
+
+        let index = self
+            .current_server_index
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.wrapping_add(1))
+            })
+            .unwrap();
+
+        let index = index % len;
         Ok(SelectServerServiceResponse {
-            server: self.target_servers[index].clone(),
+            server: target_servers[index].clone(),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, RwLock};
+
     use crate::select_server_service::{
         round_robin_select_server_service::RoundRobinSelectServerService,
         select_server_service::SelectServerService,
@@ -49,7 +67,7 @@ mod tests {
 
     #[test]
     fn should_return_an_error_if_empty_targets() {
-        let service = RoundRobinSelectServerService::new(Vec::new());
+        let service = RoundRobinSelectServerService::new(Arc::new(RwLock::new(Vec::new())));
 
         let error = service
             .execute(SelectServerServiceRequest {})
@@ -64,8 +82,10 @@ mod tests {
         let server1 = String::from("server1");
         let server2 = String::from("server2");
 
-        let service =
-            RoundRobinSelectServerService::new(Vec::from([server1.clone(), server2.clone()]));
+        let service = RoundRobinSelectServerService::new(Arc::new(RwLock::new(Vec::from([
+            server1.clone(),
+            server2.clone(),
+        ]))));
 
         let mut result = service
             .execute(SelectServerServiceRequest {})

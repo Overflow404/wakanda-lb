@@ -25,7 +25,7 @@ use axum::routing::any;
 use axum::{Router, routing::get};
 use clap::Parser;
 use http::StatusCode;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::{error, info};
@@ -177,13 +177,15 @@ async fn main() {
     info!("Server started on port {}", args.port);
 
     let wakanda_http_service = Arc::new(ReqwestHttpService::default());
+    let target_servers = Arc::new(RwLock::new(Vec::from(args.target_servers)));
+
 
     let select_server_service: Arc<dyn SelectServerService + Send + Sync> =
         match args.routing_policy {
             RoutingPolicy::RoundRobin => {
-                Arc::new(RoundRobinSelectServerService::new(args.target_servers))
+                Arc::new(RoundRobinSelectServerService::new(target_servers))
             }
-            RoutingPolicy::Random => Arc::new(RandomSelectServerService::new(args.target_servers)),
+            RoutingPolicy::Random => Arc::new(RandomSelectServerService::new(target_servers)),
         };
 
     let state = ServerState {

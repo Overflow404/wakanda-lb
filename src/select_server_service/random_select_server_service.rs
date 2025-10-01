@@ -1,4 +1,6 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    Arc, RwLock,
+};
 
 use rand::Rng;
 
@@ -10,16 +12,12 @@ use crate::select_server_service::{
 };
 
 pub struct RandomSelectServerService {
-    target_servers: Vec<String>,
-    current_server_index: AtomicUsize,
+    target_servers: Arc<RwLock<Vec<String>>>,
 }
 
 impl RandomSelectServerService {
-    pub fn new(target_servers: Vec<String>) -> RandomSelectServerService {
-        Self {
-            target_servers,
-            current_server_index: AtomicUsize::new(0),
-        }
+    pub fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RandomSelectServerService {
+        Self { target_servers }
     }
 }
 
@@ -28,22 +26,28 @@ impl SelectServerService for RandomSelectServerService {
         &self,
         _request: SelectServerServiceRequest,
     ) -> Result<SelectServerServiceResponse, SelectServerServiceError> {
-        if self.target_servers.is_empty() {
+        let target_servers = self
+            .target_servers
+            .read()
+            .map_err(|_| SelectServerServiceError::PoisonedRead)?;
+
+        if target_servers.is_empty() {
             return Err(SelectServerServiceError::NoOneIsAlive);
         }
 
-        let random_index = rand::rng().random_range(0..self.target_servers.len());
-        self.current_server_index
-            .store(random_index, Ordering::Relaxed);
+        let len = target_servers.len();
+        let random_index = rand::rng().random_range(0..len);
 
         Ok(SelectServerServiceResponse {
-            server: self.target_servers[random_index].clone(),
+            server: target_servers[random_index].clone(),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, RwLock};
+
     use crate::select_server_service::{
         random_select_server_service::RandomSelectServerService,
         select_server_service::SelectServerService,
@@ -53,7 +57,7 @@ mod tests {
 
     #[test]
     fn should_return_an_error_if_empty_targets() {
-        let service = RandomSelectServerService::new(Vec::new());
+        let service = RandomSelectServerService::new(Arc::new(RwLock::new(Vec::new())));
 
         let error = service
             .execute(SelectServerServiceRequest {})
@@ -68,7 +72,10 @@ mod tests {
         let server1 = String::from("server1");
         let server2 = String::from("server2");
 
-        let service = RandomSelectServerService::new(Vec::from([server1.clone(), server2.clone()]));
+        let service = RandomSelectServerService::new(Arc::new(RwLock::new(Vec::from([
+            server1.clone(),
+            server2.clone(),
+        ]))));
 
         let result = service.execute(SelectServerServiceRequest {});
         let selected = result.unwrap().server;
