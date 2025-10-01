@@ -7,15 +7,15 @@ use std::{
 use bytes::Bytes;
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct ForwardServiceRequestHeaders(pub HashMap<String, String>);
+pub struct ForwardServiceHeaders(pub HashMap<String, String>);
 
-impl ForwardServiceRequestHeaders {
+impl ForwardServiceHeaders {
     pub fn get(&self, key: &str) -> Option<&String> {
         HashMap::get(self, key)
     }
 }
 
-impl Deref for ForwardServiceRequestHeaders {
+impl Deref for ForwardServiceHeaders {
     type Target = HashMap<String, String>;
 
     fn deref(&self) -> &Self::Target {
@@ -23,7 +23,7 @@ impl Deref for ForwardServiceRequestHeaders {
     }
 }
 
-impl DerefMut for ForwardServiceRequestHeaders {
+impl DerefMut for ForwardServiceHeaders {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -33,14 +33,14 @@ impl DerefMut for ForwardServiceRequestHeaders {
 pub struct ForwardServiceRequest {
     pub method: ForwardServiceRequestHttpMethod,
     pub url: String,
-    pub headers: ForwardServiceRequestHeaders,
+    pub headers: ForwardServiceHeaders,
     pub body: Bytes,
 }
 
-impl<const N: usize> From<[(String, String); N]> for ForwardServiceRequestHeaders {
+impl<const N: usize> From<[(String, String); N]> for ForwardServiceHeaders {
     fn from(arr: [(String, String); N]) -> Self {
         let map = arr.into_iter().collect();
-        ForwardServiceRequestHeaders(map)
+        ForwardServiceHeaders(map)
     }
 }
 

@@ -4,7 +4,7 @@ mod reqwest_forward_service {
     use bytes::Bytes;
     use load_balancer::forward_service::forward_service::ForwardService;
     use load_balancer::forward_service::forward_service_request::{
-        ForwardServiceRequest, ForwardServiceRequestHeaders, ForwardServiceRequestHttpMethod,
+        ForwardServiceRequest, ForwardServiceHeaders, ForwardServiceRequestHttpMethod,
     };
     use load_balancer::forward_service::forward_service_response::ForwardServiceError;
     use load_balancer::forward_service::reqwest_forward_service::ReqwestForwardService;
@@ -32,7 +32,7 @@ mod reqwest_forward_service {
         let forward_service_request = ForwardServiceRequest {
             url: format!("{}{}", mock_server.uri(), "/v1/api/user".to_string()),
             method: ForwardServiceRequestHttpMethod::Get,
-            headers: ForwardServiceRequestHeaders::from([
+            headers: ForwardServiceHeaders::from([
                 ("Authorization".to_string(), "Bearer secret".to_string()),
                 ("Content-Type".to_string(), "text/plain".to_string()),
             ]),
@@ -75,7 +75,7 @@ mod reqwest_forward_service {
         let forward_service_request = ForwardServiceRequest {
             url: format!("{}{}", mock_server.uri(), "/api/data".to_string()),
             method: ForwardServiceRequestHttpMethod::Post,
-            headers: ForwardServiceRequestHeaders::from([
+            headers: ForwardServiceHeaders::from([
                 ("Authorization".to_string(), "Bearer secret".to_string()),
                 ("Content-Type".to_string(), "text/plain".to_string()),
             ]),
@@ -108,7 +108,7 @@ mod reqwest_forward_service {
                 "/health".to_string()
             ),
             method: ForwardServiceRequestHttpMethod::Get,
-            headers: ForwardServiceRequestHeaders::default(),
+            headers: ForwardServiceHeaders::default(),
             body: Bytes::new(),
         };
 
@@ -142,7 +142,7 @@ mod reqwest_forward_service {
         let forward_service_request = ForwardServiceRequest {
             url: format!("{}{}", mock_server.uri(), "/slow".to_string()),
             method: ForwardServiceRequestHttpMethod::Get,
-            headers: ForwardServiceRequestHeaders::default(),
+            headers: ForwardServiceHeaders::default(),
             body: Bytes::new(),
         };
 
@@ -176,7 +176,7 @@ mod reqwest_forward_service {
             let forward_service_request = ForwardServiceRequest {
                 url: format!("{}{}", mock_server.uri(), "/health".to_string()),
                 method: method_enum,
-                headers: ForwardServiceRequestHeaders::default(),
+                headers: ForwardServiceHeaders::default(),
                 body: Bytes::new(),
             };
 

@@ -176,9 +176,7 @@ async fn main() {
 mod tests {
 
     use crate::forward_service::forward_service::MockForwardService;
-    use crate::forward_service::forward_service_request::{
-        ForwardServiceRequestHeaders, ForwardServiceRequestHttpMethod,
-    };
+    use crate::forward_service::forward_service_request::{ForwardServiceHeaders, ForwardServiceRequestHttpMethod};
     use crate::forward_service::forward_service_response::{
         ForwardServiceError, ForwardServiceResponse,
     };
@@ -209,7 +207,7 @@ mod tests {
             mock.expect_execute().returning(|_| {
                 Ok(ForwardServiceResponse {
                     status: 200,
-                    headers: ForwardServiceRequestHeaders::default(),
+                    headers: ForwardServiceHeaders::default(),
                     body: Bytes::from("OK"),
                 })
             });
@@ -254,7 +252,7 @@ mod tests {
                 .returning(|_| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: ForwardServiceRequestHeaders::default(),
+                        headers: ForwardServiceHeaders::default(),
                         body: Bytes::from("Success"),
                     })
                 });
@@ -293,7 +291,7 @@ mod tests {
                 .returning(|_| {
                     Ok(ForwardServiceResponse {
                         status: 201,
-                        headers: ForwardServiceRequestHeaders::default(),
+                        headers: ForwardServiceHeaders::default(),
                         body: Bytes::from("Created"),
                     })
                 });
@@ -318,7 +316,7 @@ mod tests {
                         && req.body == Bytes::new()
                 })
                 .returning(|_| {
-                    let mut headers = ForwardServiceRequestHeaders::default();
+                    let mut headers = ForwardServiceHeaders::default();
                     headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
                     headers.insert("Content-Type".to_string(), "application/json".to_string());
 
@@ -359,7 +357,7 @@ mod tests {
                 .returning(move |_| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: ForwardServiceRequestHeaders::default(),
+                        headers: ForwardServiceHeaders::default(),
                         body: Bytes::from(expected_body),
                     })
                 });
@@ -392,7 +390,7 @@ mod tests {
                 .returning(|_| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: ForwardServiceRequestHeaders::default(),
+                        headers: ForwardServiceHeaders::default(),
                         body: Bytes::new(),
                     })
                 });
@@ -427,7 +425,7 @@ mod tests {
                 .returning(|_| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: ForwardServiceRequestHeaders::default(),
+                        headers: ForwardServiceHeaders::default(),
                         body: Bytes::new(),
                     })
                 });
@@ -455,7 +453,7 @@ mod tests {
                 .returning(|_| {
                     Ok(ForwardServiceResponse {
                         status: 200,
-                        headers: ForwardServiceRequestHeaders::default(),
+                        headers: ForwardServiceHeaders::default(),
                         body: Bytes::new(),
                     })
                 });
@@ -490,7 +488,7 @@ mod tests {
                     .returning(|_| {
                         Ok(ForwardServiceResponse {
                             status: 200,
-                            headers: ForwardServiceRequestHeaders::default(),
+                            headers: ForwardServiceHeaders::default(),
                             body: Bytes::new(),
                         })
                     });

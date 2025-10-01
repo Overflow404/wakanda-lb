@@ -7,7 +7,7 @@ use crate::forward_service::{
     forward_service::ForwardService,
     forward_service_error::ForwardServiceErrorChecker,
     forward_service_request::{
-        ForwardServiceRequest, ForwardServiceRequestError, ForwardServiceRequestHeaders,
+        ForwardServiceRequest, ForwardServiceRequestError, ForwardServiceHeaders,
         ForwardServiceRequestHttpMethod,
     },
     forward_service_response::{ForwardServiceError, ForwardServiceResponse},
@@ -57,7 +57,7 @@ impl ForwardService for ReqwestForwardService {
 
         let http_status = reqwest_response.status().as_u16();
 
-        let headers: ForwardServiceRequestHeaders = reqwest_response.headers().into();
+        let headers: ForwardServiceHeaders = reqwest_response.headers().into();
 
         let body = reqwest_response
             .bytes()
@@ -102,28 +102,28 @@ impl<T: ForwardServiceErrorChecker> From<T> for ForwardServiceError {
     }
 }
 
-impl From<&HeaderMap> for ForwardServiceRequestHeaders {
+impl From<&HeaderMap> for ForwardServiceHeaders {
     fn from(headers: &HeaderMap) -> Self {
         let map = headers
             .iter()
             .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
             .collect();
-        ForwardServiceRequestHeaders(map)
+        ForwardServiceHeaders(map)
     }
 }
 
-impl From<HeaderMap> for ForwardServiceRequestHeaders {
+impl From<HeaderMap> for ForwardServiceHeaders {
     fn from(headers: HeaderMap) -> Self {
         let map = headers
             .iter()
             .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
             .collect();
-        ForwardServiceRequestHeaders(map)
+        ForwardServiceHeaders(map)
     }
 }
 
-impl From<ForwardServiceRequestHeaders> for HeaderMap {
-    fn from(h: ForwardServiceRequestHeaders) -> Self {
+impl From<ForwardServiceHeaders> for HeaderMap {
+    fn from(h: ForwardServiceHeaders) -> Self {
         let mut header_map = HeaderMap::new();
         for (k, v) in h.iter() {
             if let (Ok(name), Ok(value)) = (
@@ -180,7 +180,7 @@ mod tests {
     use crate::forward_service::{
         forward_service_error::MockForwardServiceErrorChecker,
         forward_service_request::{
-            ForwardServiceRequestError, ForwardServiceRequestHeaders,
+            ForwardServiceRequestError, ForwardServiceHeaders,
             ForwardServiceRequestHttpMethod,
         },
         forward_service_response::ForwardServiceError,
@@ -236,8 +236,8 @@ mod tests {
             HeaderValue::from_bytes(&[0xFF, 0xFE]).unwrap(),
         );
 
-        let result_borrowed: ForwardServiceRequestHeaders = (&headers).into();
-        let result_owned: ForwardServiceRequestHeaders = headers.into();
+        let result_borrowed: ForwardServiceHeaders = (&headers).into();
+        let result_owned: ForwardServiceHeaders = headers.into();
 
         assert_eq!(result_borrowed.0.len(), 2);
         assert_eq!(result_owned.0.len(), 2);
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn builds_header_map_from_valid_domain_headers() {
-        let mut forward_service_request_headers = ForwardServiceRequestHeaders::default();
+        let mut forward_service_request_headers = ForwardServiceHeaders::default();
         forward_service_request_headers
             .insert("content-type".to_string(), "application/json".to_string());
         forward_service_request_headers
