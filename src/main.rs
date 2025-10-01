@@ -161,7 +161,7 @@ async fn main() {
 
     info!("Server started on port {}", args.port);
 
-    let forward_service = Arc::new(ReqwestForwardService::new());
+    let forward_service = Arc::new(ReqwestForwardService::default());
     let target_servers_base_url = String::from(args.target_servers_base_url);
 
     let state = ServerState {

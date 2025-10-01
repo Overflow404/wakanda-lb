@@ -27,7 +27,7 @@ mod reqwest_forward_service {
             .mount(&mock_server)
             .await;
 
-        let forward_service = ReqwestForwardService::new();
+        let forward_service = ReqwestForwardService::default();
 
         let forward_service_request = ForwardServiceRequest {
             url: format!("{}{}", mock_server.uri(), "/v1/api/user".to_string()),
@@ -71,7 +71,7 @@ mod reqwest_forward_service {
             .mount(&mock_server)
             .await;
 
-        let forward_service = ReqwestForwardService::new();
+        let forward_service = ReqwestForwardService::default();
         let forward_service_request = ForwardServiceRequest {
             url: format!("{}{}", mock_server.uri(), "/api/data".to_string()),
             method: ForwardServiceRequestHttpMethod::Post,
@@ -100,7 +100,7 @@ mod reqwest_forward_service {
 
     #[tokio::test]
     async fn should_detect_a_network_error() {
-        let forward_service = ReqwestForwardService::new();
+        let forward_service = ReqwestForwardService::default();
         let forward_service_request = ForwardServiceRequest {
             url: format!(
                 "{}{}",
@@ -132,7 +132,7 @@ mod reqwest_forward_service {
             .mount(&mock_server)
             .await;
 
-        let forward_service = ReqwestForwardService::with_client(
+        let forward_service = ReqwestForwardService::new(
             reqwest::Client::builder()
                 .timeout(std::time::Duration::from_millis(1))
                 .build()
@@ -172,7 +172,7 @@ mod reqwest_forward_service {
                 .mount(&mock_server)
                 .await;
 
-            let forward_service = ReqwestForwardService::new();
+            let forward_service = ReqwestForwardService::default();
             let forward_service_request = ForwardServiceRequest {
                 url: format!("{}{}", mock_server.uri(), "/health".to_string()),
                 method: method_enum,

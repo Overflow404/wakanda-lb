@@ -71,3 +71,25 @@ pub enum ForwardServiceRequestError {
     #[error("HTTP method {0} is not supported")]
     UnsupportedMethod(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::forward_service::forward_service_request::ForwardServiceRequestHttpMethod;
+
+    #[test]
+    fn forward_service_request_http_method_to_string() {
+        let methods = [
+            ForwardServiceRequestHttpMethod::Get,
+            ForwardServiceRequestHttpMethod::Post,
+            ForwardServiceRequestHttpMethod::Put,
+            ForwardServiceRequestHttpMethod::Delete,
+            ForwardServiceRequestHttpMethod::Patch,
+        ];
+
+        let expected = ["GET", "POST", "PUT", "DELETE", "PATCH"];
+
+        for (method, &expected_str) in methods.iter().zip(expected.iter()) {
+            assert_eq!(method.to_string(), expected_str);
+        }
+    }
+}
