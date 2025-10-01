@@ -3,29 +3,29 @@ use axum::response::IntoResponse;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use tracing::info;
 
-use crate::forward_service::{
-    forward_service::ForwardService,
-    forward_service_error::ForwardServiceErrorChecker,
-    forward_service_request::{
-        ForwardServiceRequest, ForwardServiceRequestError, ForwardServiceHeaders,
-        ForwardServiceRequestHttpMethod,
+use crate::wakanda_http_service::{
+    wakanda_http_service::WakandaHttpService,
+    wakanda_http_service_error::WakandaHttpServiceErrorChecker,
+    wakanda_http_service_request::{
+        WakandaHttpServiceHeaders, WakandaHttpServiceRequest, WakandaHttpServiceRequestError,
+        WakandaHttpServiceRequestHttpMethod,
     },
-    forward_service_response::{ForwardServiceError, ForwardServiceResponse},
+    wakanda_http_service_response::{WakandaHttpServiceError, WakandaHttpServiceResponse},
 };
 
 #[derive(Clone)]
-pub struct ReqwestForwardService {
+pub struct ReqwestHttpService {
     client: reqwest::Client,
 }
 
-impl ReqwestForwardService {
+impl ReqwestHttpService {
     #[allow(dead_code)]
     pub fn new(client: reqwest::Client) -> Self {
         Self { client }
     }
 }
 
-impl Default for ReqwestForwardService {
+impl Default for ReqwestHttpService {
     fn default() -> Self {
         Self {
             client: reqwest::Client::builder()
@@ -37,12 +37,12 @@ impl Default for ReqwestForwardService {
 }
 
 #[async_trait]
-impl ForwardService for ReqwestForwardService {
+impl WakandaHttpService for ReqwestHttpService {
     async fn execute(
         &self,
-        request: ForwardServiceRequest,
-    ) -> Result<ForwardServiceResponse, ForwardServiceError> {
-        info!("Forwarding {:#?}", request);
+        request: WakandaHttpServiceRequest,
+    ) -> Result<WakandaHttpServiceResponse, WakandaHttpServiceError> {
+        info!("Proxying {:#?}", request);
 
         let reqwuest_builder = self
             .client
@@ -53,18 +53,18 @@ impl ForwardService for ReqwestForwardService {
         let reqwest_response = reqwuest_builder
             .send()
             .await
-            .map_err(ForwardServiceError::from)?;
+            .map_err(WakandaHttpServiceError::from)?;
 
         let http_status = reqwest_response.status().as_u16();
 
-        let headers: ForwardServiceHeaders = reqwest_response.headers().into();
+        let headers: WakandaHttpServiceHeaders = reqwest_response.headers().into();
 
         let body = reqwest_response
             .bytes()
             .await
-            .map_err(|e| ForwardServiceError::Network(e.to_string()))?;
+            .map_err(|e| WakandaHttpServiceError::Network(e.to_string()))?;
 
-        Ok(ForwardServiceResponse {
+        Ok(WakandaHttpServiceResponse {
             status: http_status,
             headers,
             body,
@@ -72,7 +72,7 @@ impl ForwardService for ReqwestForwardService {
     }
 }
 
-impl ForwardServiceErrorChecker for reqwest::Error {
+impl WakandaHttpServiceErrorChecker for reqwest::Error {
     fn is_timeout(&self) -> bool {
         self.is_timeout()
     }
@@ -90,40 +90,40 @@ impl ForwardServiceErrorChecker for reqwest::Error {
     }
 }
 
-impl<T: ForwardServiceErrorChecker> From<T> for ForwardServiceError {
+impl<T: WakandaHttpServiceErrorChecker> From<T> for WakandaHttpServiceError {
     fn from(err: T) -> Self {
         if err.is_timeout() {
-            ForwardServiceError::Timeout
+            WakandaHttpServiceError::Timeout
         } else if err.is_connect() || err.is_request() {
-            ForwardServiceError::Network(err.error_string())
+            WakandaHttpServiceError::Network(err.error_string())
         } else {
-            ForwardServiceError::InvalidRequest(err.error_string())
+            WakandaHttpServiceError::InvalidRequest(err.error_string())
         }
     }
 }
 
-impl From<&HeaderMap> for ForwardServiceHeaders {
+impl From<&HeaderMap> for WakandaHttpServiceHeaders {
     fn from(headers: &HeaderMap) -> Self {
         let map = headers
             .iter()
             .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
             .collect();
-        ForwardServiceHeaders(map)
+        WakandaHttpServiceHeaders(map)
     }
 }
 
-impl From<HeaderMap> for ForwardServiceHeaders {
+impl From<HeaderMap> for WakandaHttpServiceHeaders {
     fn from(headers: HeaderMap) -> Self {
         let map = headers
             .iter()
             .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
             .collect();
-        ForwardServiceHeaders(map)
+        WakandaHttpServiceHeaders(map)
     }
 }
 
-impl From<ForwardServiceHeaders> for HeaderMap {
-    fn from(h: ForwardServiceHeaders) -> Self {
+impl From<WakandaHttpServiceHeaders> for HeaderMap {
+    fn from(h: WakandaHttpServiceHeaders) -> Self {
         let mut header_map = HeaderMap::new();
         for (k, v) in h.iter() {
             if let (Ok(name), Ok(value)) = (
@@ -137,37 +137,37 @@ impl From<ForwardServiceHeaders> for HeaderMap {
     }
 }
 
-impl IntoResponse for ForwardServiceRequestError {
+impl IntoResponse for WakandaHttpServiceRequestError {
     fn into_response(self) -> axum::response::Response {
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 
-impl TryFrom<&Method> for ForwardServiceRequestHttpMethod {
-    type Error = ForwardServiceRequestError;
+impl TryFrom<&Method> for WakandaHttpServiceRequestHttpMethod {
+    type Error = WakandaHttpServiceRequestError;
 
     fn try_from(value: &Method) -> Result<Self, Self::Error> {
         match *value {
-            Method::GET => Ok(ForwardServiceRequestHttpMethod::Get),
-            Method::POST => Ok(ForwardServiceRequestHttpMethod::Post),
-            Method::PUT => Ok(ForwardServiceRequestHttpMethod::Put),
-            Method::DELETE => Ok(ForwardServiceRequestHttpMethod::Delete),
-            Method::PATCH => Ok(ForwardServiceRequestHttpMethod::Patch),
-            _ => Err(ForwardServiceRequestError::UnsupportedMethod(
+            Method::GET => Ok(WakandaHttpServiceRequestHttpMethod::Get),
+            Method::POST => Ok(WakandaHttpServiceRequestHttpMethod::Post),
+            Method::PUT => Ok(WakandaHttpServiceRequestHttpMethod::Put),
+            Method::DELETE => Ok(WakandaHttpServiceRequestHttpMethod::Delete),
+            Method::PATCH => Ok(WakandaHttpServiceRequestHttpMethod::Patch),
+            _ => Err(WakandaHttpServiceRequestError::UnsupportedMethod(
                 value.to_string(),
             )),
         }
     }
 }
 
-impl From<ForwardServiceRequestHttpMethod> for reqwest::Method {
-    fn from(value: ForwardServiceRequestHttpMethod) -> Self {
+impl From<WakandaHttpServiceRequestHttpMethod> for reqwest::Method {
+    fn from(value: WakandaHttpServiceRequestHttpMethod) -> Self {
         match value {
-            ForwardServiceRequestHttpMethod::Get => reqwest::Method::GET,
-            ForwardServiceRequestHttpMethod::Post => reqwest::Method::POST,
-            ForwardServiceRequestHttpMethod::Put => reqwest::Method::PUT,
-            ForwardServiceRequestHttpMethod::Delete => reqwest::Method::DELETE,
-            ForwardServiceRequestHttpMethod::Patch => reqwest::Method::PATCH,
+            WakandaHttpServiceRequestHttpMethod::Get => reqwest::Method::GET,
+            WakandaHttpServiceRequestHttpMethod::Post => reqwest::Method::POST,
+            WakandaHttpServiceRequestHttpMethod::Put => reqwest::Method::PUT,
+            WakandaHttpServiceRequestHttpMethod::Delete => reqwest::Method::DELETE,
+            WakandaHttpServiceRequestHttpMethod::Patch => reqwest::Method::PATCH,
         }
     }
 }
@@ -177,47 +177,47 @@ mod tests {
     use axum::response::IntoResponse;
     use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 
-    use crate::forward_service::{
-        forward_service_error::MockForwardServiceErrorChecker,
-        forward_service_request::{
-            ForwardServiceRequestError, ForwardServiceHeaders,
-            ForwardServiceRequestHttpMethod,
+    use crate::wakanda_http_service::{
+        wakanda_http_service_error::MockWakandaHttpServiceErrorChecker,
+        wakanda_http_service_request::{
+            WakandaHttpServiceHeaders, WakandaHttpServiceRequestError,
+            WakandaHttpServiceRequestHttpMethod,
         },
-        forward_service_response::ForwardServiceError,
+        wakanda_http_service_response::WakandaHttpServiceError,
     };
 
     #[test]
     fn converts_reqwest_errors_into_domain_variants() {
-        let mut mock = MockForwardServiceErrorChecker::new();
+        let mut mock = MockWakandaHttpServiceErrorChecker::new();
         mock.expect_is_timeout().return_const(true);
-        let result: ForwardServiceError = mock.into();
-        assert!(matches!(result, ForwardServiceError::Timeout));
+        let result: WakandaHttpServiceError = mock.into();
+        assert!(matches!(result, WakandaHttpServiceError::Timeout));
 
-        mock = MockForwardServiceErrorChecker::new();
+        mock = MockWakandaHttpServiceErrorChecker::new();
         mock.expect_is_timeout().return_const(false);
         mock.expect_is_connect().return_const(true);
         mock.expect_error_string()
             .return_const("connect error".to_string());
-        let result: ForwardServiceError = mock.into();
-        assert!(matches!(result, ForwardServiceError::Network(_)));
+        let result: WakandaHttpServiceError = mock.into();
+        assert!(matches!(result, WakandaHttpServiceError::Network(_)));
 
-        mock = MockForwardServiceErrorChecker::new();
+        mock = MockWakandaHttpServiceErrorChecker::new();
         mock.expect_is_timeout().return_const(false);
         mock.expect_is_connect().return_const(false);
         mock.expect_is_request().return_const(true);
         mock.expect_error_string()
             .return_const("request error".to_string());
-        let result: ForwardServiceError = mock.into();
-        assert!(matches!(result, ForwardServiceError::Network(_)));
+        let result: WakandaHttpServiceError = mock.into();
+        assert!(matches!(result, WakandaHttpServiceError::Network(_)));
 
-        mock = MockForwardServiceErrorChecker::new();
+        mock = MockWakandaHttpServiceErrorChecker::new();
         mock.expect_is_timeout().return_const(false);
         mock.expect_is_connect().return_const(false);
         mock.expect_is_request().return_const(false);
         mock.expect_error_string()
             .return_const("other error".to_string());
-        let result: ForwardServiceError = mock.into();
-        assert!(matches!(result, ForwardServiceError::InvalidRequest(_)));
+        let result: WakandaHttpServiceError = mock.into();
+        assert!(matches!(result, WakandaHttpServiceError::InvalidRequest(_)));
     }
 
     #[test]
@@ -236,8 +236,8 @@ mod tests {
             HeaderValue::from_bytes(&[0xFF, 0xFE]).unwrap(),
         );
 
-        let result_borrowed: ForwardServiceHeaders = (&headers).into();
-        let result_owned: ForwardServiceHeaders = headers.into();
+        let result_borrowed: WakandaHttpServiceHeaders = (&headers).into();
+        let result_owned: WakandaHttpServiceHeaders = headers.into();
 
         assert_eq!(result_borrowed.0.len(), 2);
         assert_eq!(result_owned.0.len(), 2);
@@ -266,13 +266,13 @@ mod tests {
 
     #[test]
     fn builds_header_map_from_valid_domain_headers() {
-        let mut forward_service_request_headers = ForwardServiceHeaders::default();
-        forward_service_request_headers
+        let mut wakanda_http_service_request_headers = WakandaHttpServiceHeaders::default();
+        wakanda_http_service_request_headers
             .insert("content-type".to_string(), "application/json".to_string());
-        forward_service_request_headers
+        wakanda_http_service_request_headers
             .insert("x-custom-header".to_string(), "custom-value".to_string());
 
-        let result: HeaderMap = forward_service_request_headers.into();
+        let result: HeaderMap = wakanda_http_service_request_headers.into();
         assert_eq!(
             result.get("content-type"),
             Some(&HeaderValue::from_static("application/json"))
@@ -286,8 +286,9 @@ mod tests {
 
     #[test]
     fn converts_domain_request_error_into_axum_response() {
-        let error =
-            ForwardServiceRequestError::UnsupportedMethod(String::from("OPTION is not supported"));
+        let error = WakandaHttpServiceRequestError::UnsupportedMethod(String::from(
+            "OPTION is not supported",
+        ));
         let actual_response = error.into_response();
         let expected_response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
 
@@ -297,33 +298,33 @@ mod tests {
     #[test]
     fn converts_domain_http_methods_into_http_methods() {
         assert_eq!(
-            ForwardServiceRequestHttpMethod::try_from(&Method::GET).unwrap(),
-            ForwardServiceRequestHttpMethod::Get
+            WakandaHttpServiceRequestHttpMethod::try_from(&Method::GET).unwrap(),
+            WakandaHttpServiceRequestHttpMethod::Get
         );
 
         assert_eq!(
-            ForwardServiceRequestHttpMethod::try_from(&Method::POST).unwrap(),
-            ForwardServiceRequestHttpMethod::Post
+            WakandaHttpServiceRequestHttpMethod::try_from(&Method::POST).unwrap(),
+            WakandaHttpServiceRequestHttpMethod::Post
         );
 
         assert_eq!(
-            ForwardServiceRequestHttpMethod::try_from(&Method::PUT).unwrap(),
-            ForwardServiceRequestHttpMethod::Put
+            WakandaHttpServiceRequestHttpMethod::try_from(&Method::PUT).unwrap(),
+            WakandaHttpServiceRequestHttpMethod::Put
         );
 
         assert_eq!(
-            ForwardServiceRequestHttpMethod::try_from(&Method::DELETE).unwrap(),
-            ForwardServiceRequestHttpMethod::Delete
+            WakandaHttpServiceRequestHttpMethod::try_from(&Method::DELETE).unwrap(),
+            WakandaHttpServiceRequestHttpMethod::Delete
         );
 
         assert_eq!(
-            ForwardServiceRequestHttpMethod::try_from(&Method::PATCH).unwrap(),
-            ForwardServiceRequestHttpMethod::Patch
+            WakandaHttpServiceRequestHttpMethod::try_from(&Method::PATCH).unwrap(),
+            WakandaHttpServiceRequestHttpMethod::Patch
         );
 
-        let err = ForwardServiceRequestHttpMethod::try_from(&Method::OPTIONS).unwrap_err();
+        let err = WakandaHttpServiceRequestHttpMethod::try_from(&Method::OPTIONS).unwrap_err();
         match err {
-            ForwardServiceRequestError::UnsupportedMethod(m) => {
+            WakandaHttpServiceRequestError::UnsupportedMethod(m) => {
                 assert_eq!(m, "OPTIONS".to_string())
             }
         }
@@ -332,23 +333,23 @@ mod tests {
     #[test]
     fn converts_http_methods_into_domain_http_methods() {
         assert_eq!(
-            Method::from(ForwardServiceRequestHttpMethod::Get),
+            Method::from(WakandaHttpServiceRequestHttpMethod::Get),
             Method::GET
         );
         assert_eq!(
-            Method::from(ForwardServiceRequestHttpMethod::Post),
+            Method::from(WakandaHttpServiceRequestHttpMethod::Post),
             Method::POST
         );
         assert_eq!(
-            Method::from(ForwardServiceRequestHttpMethod::Put),
+            Method::from(WakandaHttpServiceRequestHttpMethod::Put),
             Method::PUT
         );
         assert_eq!(
-            Method::from(ForwardServiceRequestHttpMethod::Delete),
+            Method::from(WakandaHttpServiceRequestHttpMethod::Delete),
             Method::DELETE
         );
         assert_eq!(
-            Method::from(ForwardServiceRequestHttpMethod::Patch),
+            Method::from(WakandaHttpServiceRequestHttpMethod::Patch),
             Method::PATCH
         );
     }

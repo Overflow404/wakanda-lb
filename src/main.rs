@@ -1,22 +1,23 @@
 pub(crate) mod cli_arguments;
-pub(crate) mod forward_service;
 pub(crate) mod request_id;
 pub(crate) mod select_server_service;
+pub(crate) mod wakanda_http_service;
 
 use crate::cli_arguments::{CliArguments, RoutingPolicy};
-use crate::forward_service::forward_service::ForwardService;
-use crate::forward_service::forward_service_request::{
-    ForwardServiceRequest, ForwardServiceRequestHttpMethod,
-};
-use crate::forward_service::forward_service_response::{
-    ForwardServiceError, ForwardServiceResponse,
-};
-use crate::forward_service::reqwest_forward_service::ReqwestForwardService;
+
 use crate::request_id::{LoadBalancerRequestId, UNKNOWN_REQUEST_ID, X_REQUEST_ID};
 use crate::select_server_service::random_select_server_service::RandomSelectServerService;
 use crate::select_server_service::round_robin_select_server_service::RoundRobinSelectServerService;
 use crate::select_server_service::select_server_service::SelectServerService;
 use crate::select_server_service::select_server_service_request::SelectServerServiceRequest;
+use crate::wakanda_http_service::reqwest_http_service::ReqwestHttpService;
+use crate::wakanda_http_service::wakanda_http_service::WakandaHttpService;
+use crate::wakanda_http_service::wakanda_http_service_request::{
+    WakandaHttpServiceRequest, WakandaHttpServiceRequestHttpMethod,
+};
+use crate::wakanda_http_service::wakanda_http_service_response::{
+    WakandaHttpServiceError, WakandaHttpServiceResponse,
+};
 use axum::body::{Body, to_bytes};
 use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
@@ -33,7 +34,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Clone)]
 pub(crate) struct ServerState {
-    forward_service: Arc<dyn ForwardService + Send + Sync>,
+    wakanda_http_service: Arc<dyn WakandaHttpService + Send + Sync>,
     select_server_service: Arc<dyn SelectServerService>,
 }
 
@@ -42,11 +43,11 @@ async fn health_endpoint() -> impl IntoResponse {
     "PONG"
 }
 
-async fn forward_endpoint(
+async fn proxy_endpoint(
     State(state): State<ServerState>,
     request: Request<Body>,
 ) -> impl IntoResponse {
-    info!("Executing request forwarding");
+    info!("Proxing request");
 
     let (parts, body) = request.into_parts();
 
@@ -73,7 +74,7 @@ async fn forward_endpoint(
         }
     };
 
-    let method: ForwardServiceRequestHttpMethod = match (&parts.method).try_into() {
+    let method: WakandaHttpServiceRequestHttpMethod = match (&parts.method).try_into() {
         Ok(method) => method,
         Err(error) => {
             error!("{}", error.to_string());
@@ -82,8 +83,8 @@ async fn forward_endpoint(
     };
 
     let result = state
-        .forward_service
-        .execute(ForwardServiceRequest {
+        .wakanda_http_service
+        .execute(WakandaHttpServiceRequest {
             method,
             headers,
             body,
@@ -92,7 +93,7 @@ async fn forward_endpoint(
         .await;
 
     match result {
-        Ok(forward_service_response) => forward_service_response.into(),
+        Ok(wakanda_http_service_response) => wakanda_http_service_response.into(),
         Err(error) => {
             let (status, error) = error.into();
             error!("Error: {} Status: {}", error, status);
@@ -102,8 +103,8 @@ async fn forward_endpoint(
     }
 }
 
-impl From<ForwardServiceResponse> for Response<Body> {
-    fn from(value: ForwardServiceResponse) -> Self {
+impl From<WakandaHttpServiceResponse> for Response<Body> {
+    fn from(value: WakandaHttpServiceResponse) -> Self {
         let mut response = Response::builder()
             .status(StatusCode::from_u16(value.status).unwrap_or(StatusCode::OK));
 
@@ -115,12 +116,14 @@ impl From<ForwardServiceResponse> for Response<Body> {
     }
 }
 
-impl From<ForwardServiceError> for (StatusCode, &str) {
-    fn from(value: ForwardServiceError) -> Self {
+impl From<WakandaHttpServiceError> for (StatusCode, &str) {
+    fn from(value: WakandaHttpServiceError) -> Self {
         match value {
-            ForwardServiceError::Network(_) => (StatusCode::BAD_GATEWAY, "Network error"),
-            ForwardServiceError::InvalidRequest(_) => (StatusCode::BAD_REQUEST, "Invalid request"),
-            ForwardServiceError::Timeout => (StatusCode::GATEWAY_TIMEOUT, "Timeout"),
+            WakandaHttpServiceError::Network(_) => (StatusCode::BAD_GATEWAY, "Network error"),
+            WakandaHttpServiceError::InvalidRequest(_) => {
+                (StatusCode::BAD_REQUEST, "Invalid request")
+            }
+            WakandaHttpServiceError::Timeout => (StatusCode::GATEWAY_TIMEOUT, "Timeout"),
         }
     }
 }
@@ -128,8 +131,8 @@ impl From<ForwardServiceError> for (StatusCode, &str) {
 pub(crate) fn router(server_state: ServerState) -> Router {
     Router::new()
         .route("/health", get(health_endpoint))
-        .route("/{*path}", any(forward_endpoint))
-        .route("/", any(forward_endpoint))
+        .route("/{*path}", any(proxy_endpoint))
+        .route("/", any(proxy_endpoint))
         .with_state(server_state)
         .layer(
             TraceLayer::new_for_http()
@@ -173,7 +176,7 @@ async fn main() {
 
     info!("Server started on port {}", args.port);
 
-    let forward_service = Arc::new(ReqwestForwardService::default());
+    let wakanda_http_service = Arc::new(ReqwestHttpService::default());
 
     let select_server_service: Arc<dyn SelectServerService + Send + Sync> =
         match args.routing_policy {
@@ -184,7 +187,7 @@ async fn main() {
         };
 
     let state = ServerState {
-        forward_service,
+        wakanda_http_service,
         select_server_service,
     };
 
@@ -194,17 +197,16 @@ async fn main() {
 #[cfg(test)]
 mod tests {
 
-    use crate::forward_service::forward_service::MockForwardService;
-    use crate::forward_service::forward_service_request::{
-        ForwardServiceHeaders, ForwardServiceRequestHttpMethod,
-    };
-    use crate::forward_service::forward_service_response::{
-        ForwardServiceError, ForwardServiceResponse,
-    };
-
     use crate::select_server_service::select_server_service::MockSelectServerService;
     use crate::select_server_service::select_server_service_error::SelectServerServiceError::NoOneIsAlive;
     use crate::select_server_service::select_server_service_response::SelectServerServiceResponse;
+    use crate::wakanda_http_service::wakanda_http_service::MockWakandaHttpService;
+    use crate::wakanda_http_service::wakanda_http_service_request::{
+        WakandaHttpServiceHeaders, WakandaHttpServiceRequestHttpMethod,
+    };
+    use crate::wakanda_http_service::wakanda_http_service_response::{
+        WakandaHttpServiceError, WakandaHttpServiceResponse,
+    };
     use crate::{ServerState, X_REQUEST_ID, router};
     use axum::body::{Body, Bytes};
     use axum::http::{Method, Request, StatusCode};
@@ -220,27 +222,27 @@ mod tests {
 
     fn build_router_with_mocks(
         target_servers: Vec<String>,
-        setup_forward_service_mock: impl FnOnce(&mut MockForwardService),
+        setup_wakanda_http_service_mock: impl FnOnce(&mut MockWakandaHttpService),
         setup_select_server_service_mock: impl FnOnce(&mut MockSelectServerService, Vec<String>),
     ) -> axum::Router {
-        let mut forward_service_mock = MockForwardService::default();
-        setup_forward_service_mock(&mut forward_service_mock);
+        let mut wakanda_http_service_mock = MockWakandaHttpService::default();
+        setup_wakanda_http_service_mock(&mut wakanda_http_service_mock);
 
         let mut select_server_service_mock = MockSelectServerService::default();
         setup_select_server_service_mock(&mut select_server_service_mock, target_servers);
 
         router(ServerState {
-            forward_service: Arc::new(forward_service_mock),
+            wakanda_http_service: Arc::new(wakanda_http_service_mock),
             select_server_service: Arc::new(select_server_service_mock),
         })
     }
 
-    fn build_success_forward_service_mock() -> impl FnOnce(&mut MockForwardService) {
-        |mock: &mut MockForwardService| {
+    fn build_success_wakanda_http_service_mock() -> impl FnOnce(&mut MockWakandaHttpService) {
+        |mock: &mut MockWakandaHttpService| {
             mock.expect_execute().returning(|_| {
-                Ok(ForwardServiceResponse {
+                Ok(WakandaHttpServiceResponse {
                     status: 200,
-                    headers: ForwardServiceHeaders::default(),
+                    headers: WakandaHttpServiceHeaders::default(),
                     body: Bytes::from("OK"),
                 })
             });
@@ -265,7 +267,7 @@ mod tests {
     async fn health_endpoint_returns_pong() {
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_forward_service_mock(),
+            build_success_wakanda_http_service_mock(),
             first_one_select_server_service_mock(),
         );
 
@@ -290,22 +292,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_forwards_get_request() {
+    async fn proxy_endpoint_sends_get_request() {
         let router = build_router_with_mocks(
             target_servers(),
-            |forward_service_mock| {
-                forward_service_mock
+            |wakanda_http_service_mock| {
+                wakanda_http_service_mock
                     .expect_execute()
                     .withf(move |req| {
-                        req.method == ForwardServiceRequestHttpMethod::Get
+                        req.method == WakandaHttpServiceRequestHttpMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .times(1)
                     .returning(|_| {
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 200,
-                            headers: ForwardServiceHeaders::default(),
+                            headers: WakandaHttpServiceHeaders::default(),
                             body: Bytes::from("Success"),
                         })
                     });
@@ -333,20 +335,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_preserves_response_status() {
+    async fn proxy_endpoint_preserves_response_status() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == ForwardServiceRequestHttpMethod::Get
+                        req.method == WakandaHttpServiceRequestHttpMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .returning(|_| {
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 201,
-                            headers: ForwardServiceHeaders::default(),
+                            headers: WakandaHttpServiceHeaders::default(),
                             body: Bytes::from("Created"),
                         })
                     });
@@ -363,22 +365,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_preserves_response_headers() {
+    async fn proxy_endpoint_preserves_response_headers() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == ForwardServiceRequestHttpMethod::Get
+                        req.method == WakandaHttpServiceRequestHttpMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .returning(|_| {
-                        let mut headers = ForwardServiceHeaders::default();
+                        let mut headers = WakandaHttpServiceHeaders::default();
                         headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
                         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 200,
                             headers,
                             body: Bytes::from("{}"),
@@ -404,21 +406,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_preserves_response_body() {
+    async fn proxy_endpoint_preserves_response_body() {
         let expected_body = r#"{"data": "test"}"#;
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == ForwardServiceRequestHttpMethod::Get
+                        req.method == WakandaHttpServiceRequestHttpMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .returning(move |_| {
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 200,
-                            headers: ForwardServiceHeaders::default(),
+                            headers: WakandaHttpServiceHeaders::default(),
                             body: Bytes::from(expected_body),
                         })
                     });
@@ -439,13 +441,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_forwards_request_headers() {
+    async fn proxy_endpoint_sends_request_headers() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == ForwardServiceRequestHttpMethod::Get
+                        req.method == WakandaHttpServiceRequestHttpMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                             && req.headers.get("authorization") == Some(&"Bearer token".to_string())
@@ -453,9 +455,9 @@ mod tests {
                                 == Some(&"application/json".to_string())
                     })
                     .returning(|_| {
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 200,
-                            headers: ForwardServiceHeaders::default(),
+                            headers: WakandaHttpServiceHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
@@ -479,21 +481,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_forwards_request_body() {
+    async fn proxy_endpoint_sends_request_body() {
         let request_body = r#"{"key": "value"}"#;
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == ForwardServiceRequestHttpMethod::Post
+                        req.method == WakandaHttpServiceRequestHttpMethod::Post
                             && req.url == "http://target.com/"
                             && req.body == Bytes::from(request_body)
                     })
                     .returning(|_| {
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 200,
-                            headers: ForwardServiceHeaders::default(),
+                            headers: WakandaHttpServiceHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
@@ -516,16 +518,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_forwards_request_path() {
+    async fn proxy_endpoint_sends_request_path() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
                     .withf(|req| req.url == "http://target.com/api/users")
                     .returning(|_| {
-                        Ok(ForwardServiceResponse {
+                        Ok(WakandaHttpServiceResponse {
                             status: 200,
-                            headers: ForwardServiceHeaders::default(),
+                            headers: WakandaHttpServiceHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
@@ -547,7 +549,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_forwards_request_method() {
+    async fn proxy_endpoint_sends_request_method() {
         for (method, method_str) in [
             (Method::GET, "GET"),
             (Method::POST, "POST"),
@@ -562,9 +564,9 @@ mod tests {
                     mock.expect_execute()
                         .withf(move |req| req.method.to_string() == expected_method)
                         .returning(|_| {
-                            Ok(ForwardServiceResponse {
+                            Ok(WakandaHttpServiceResponse {
                                 status: 200,
-                                headers: ForwardServiceHeaders::default(),
+                                headers: WakandaHttpServiceHeaders::default(),
                                 body: Bytes::new(),
                             })
                         });
@@ -593,12 +595,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_handles_network_error() {
+    async fn proxy_endpoint_handles_network_error() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute().returning(|_| {
-                    Err(ForwardServiceError::Network(
+                    Err(WakandaHttpServiceError::Network(
                         "Connection refused".to_string(),
                     ))
                 });
@@ -615,12 +617,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_handles_timeout_error() {
+    async fn proxy_endpoint_handles_timeout_error() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
                 mock.expect_execute()
-                    .returning(|_| Err(ForwardServiceError::Timeout));
+                    .returning(|_| Err(WakandaHttpServiceError::Timeout));
             },
             first_one_select_server_service_mock(),
         );
@@ -634,12 +636,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_handles_invalid_request_error() {
+    async fn proxy_endpoint_handles_invalid_request_error() {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
-                mock.expect_execute()
-                    .returning(|_| Err(ForwardServiceError::InvalidRequest("Bad URL".to_string())));
+                mock.expect_execute().returning(|_| {
+                    Err(WakandaHttpServiceError::InvalidRequest(
+                        "Bad URL".to_string(),
+                    ))
+                });
             },
             first_one_select_server_service_mock(),
         );
@@ -653,10 +658,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_includes_request_id_in_response() {
+    async fn proxy_endpoint_includes_request_id_in_response() {
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_forward_service_mock(),
+            build_success_wakanda_http_service_mock(),
             first_one_select_server_service_mock(),
         );
 
@@ -671,11 +676,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_propagates_existing_request_id() {
+    async fn proxy_endpoint_propagates_existing_request_id() {
         let custom_request_id = "custom-12345";
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_forward_service_mock(),
+            build_success_wakanda_http_service_mock(),
             first_one_select_server_service_mock(),
         );
 
@@ -699,13 +704,13 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", HeaderValue::from_static("application/json"));
 
-        let forward_response = ForwardServiceResponse {
+        let wakanda_http_service_response = WakandaHttpServiceResponse {
             status: 200,
             headers: headers.into(),
             body: Bytes::from(r#"{"key":"value"}"#),
         };
 
-        let response: Response<Body> = forward_response.into();
+        let response: Response<Body> = wakanda_http_service_response.into();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(
@@ -721,9 +726,9 @@ mod tests {
 
     #[test]
     fn converts_domain_errors_to_http_error() {
-        let network_error = ForwardServiceError::Network("Connection refused".into());
-        let invalid_request = ForwardServiceError::InvalidRequest("Bad data".into());
-        let timeout = ForwardServiceError::Timeout;
+        let network_error = WakandaHttpServiceError::Network("Connection refused".into());
+        let invalid_request = WakandaHttpServiceError::InvalidRequest("Bad data".into());
+        let timeout = WakandaHttpServiceError::Timeout;
 
         let (status, msg): (StatusCode, &str) = network_error.into();
         assert_eq!(status, StatusCode::BAD_GATEWAY);
@@ -739,10 +744,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forward_endpoint_handles_no_one_is_alive_error() {
+    async fn proxy_endpoint_handles_no_one_is_alive_error() {
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_forward_service_mock(),
+            build_success_wakanda_http_service_mock(),
             |select_server_service_mock, _| {
                 select_server_service_mock
                     .expect_execute()

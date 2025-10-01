@@ -1,16 +1,16 @@
 use bytes::Bytes;
 
-use crate::forward_service::forward_service_request::ForwardServiceHeaders;
+use crate::wakanda_http_service::wakanda_http_service_request::WakandaHttpServiceHeaders;
 
 #[derive(Debug, Clone)]
-pub struct ForwardServiceResponse {
+pub struct WakandaHttpServiceResponse {
     pub status: u16,
-    pub headers: ForwardServiceHeaders,
+    pub headers: WakandaHttpServiceHeaders,
     pub body: Bytes,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ForwardServiceError {
+pub enum WakandaHttpServiceError {
     #[error("Network error: {0}")]
     Network(String),
 
