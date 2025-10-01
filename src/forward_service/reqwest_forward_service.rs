@@ -48,7 +48,7 @@ impl ForwardService for ReqwestForwardService {
             .client
             .request(request.method.into(), request.url)
             .headers(request.headers.into())
-            .body(request.body.clone());
+            .body(request.body);
 
         let reqwest_response = reqwuest_builder
             .send()

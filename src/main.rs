@@ -139,7 +139,7 @@ pub(crate) fn router(server_state: ServerState) -> Router {
         )
         .layer(PropagateRequestIdLayer::new(X_REQUEST_ID))
         .layer(SetRequestIdLayer::new(
-            X_REQUEST_ID.clone(),
+            X_REQUEST_ID,
             LoadBalancerRequestId::default(),
         ))
 }
@@ -192,7 +192,7 @@ mod tests {
     use tower::ServiceExt;
 
     fn build_router_with_mock(
-        url: String,
+        url: &str,
         setup: impl FnOnce(&mut MockForwardService),
     ) -> axum::Router {
         let mut mock = MockForwardService::default();
@@ -200,7 +200,7 @@ mod tests {
 
         router(ServerState {
             forward_service: Arc::new(mock),
-            target_servers_base_url: url,
+            target_servers_base_url: String::from(url),
         })
     }
 
@@ -218,8 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_endpoint_returns_pong() {
-        let router =
-            build_router_with_mock(String::from("http://localhost:3000"), build_success_mock());
+        let router = build_router_with_mock("http://localhost:3000", build_success_mock());
 
         let response = router
             .oneshot(
@@ -243,8 +242,8 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_forwards_get_request() {
-        let target_url = String::from("http://target.com");
-        let router = build_router_with_mock(target_url.clone(), |mock| {
+        let target_url = "http://target.com";
+        let router = build_router_with_mock(target_url, |mock| {
             mock.expect_execute()
                 .withf(move |req| {
                     req.method == ForwardServiceRequestHttpMethod::Get
@@ -282,9 +281,9 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_preserves_response_status() {
-        let target_url = String::from("http://target.com");
+        let target_url = "http://target.com";
 
-        let router = build_router_with_mock(target_url.clone(), |mock| {
+        let router = build_router_with_mock(target_url, |mock| {
             mock.expect_execute()
                 .withf(move |req| {
                     req.method == ForwardServiceRequestHttpMethod::Get
@@ -310,8 +309,8 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_preserves_response_headers() {
-        let target_url = String::from("http://target.com");
-        let router = build_router_with_mock(target_url.clone(), |mock| {
+        let target_url = "http://target.com";
+        let router = build_router_with_mock(target_url, |mock| {
             mock.expect_execute()
                 .withf(move |req| {
                     req.method == ForwardServiceRequestHttpMethod::Get
@@ -349,9 +348,8 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_preserves_response_body() {
         let expected_body = r#"{"data": "test"}"#;
-        let target_url = String::from("http://target.com");
-        let router = build_router_with_mock(target_url.clone(), |mock| {
-            let body_clone = expected_body.to_string();
+        let target_url = "http://target.com";
+        let router = build_router_with_mock(target_url, |mock| {
             mock.expect_execute()
                 .withf(move |req| {
                     req.method == ForwardServiceRequestHttpMethod::Get
@@ -362,7 +360,7 @@ mod tests {
                     Ok(ForwardServiceResponse {
                         status: 200,
                         headers: ForwardServiceRequestHeaders::default(),
-                        body: Bytes::from(body_clone.clone()),
+                        body: Bytes::from(expected_body),
                     })
                 });
         });
@@ -381,8 +379,8 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_forwards_request_headers() {
-        let target_url = String::from("http://target.com");
-        let router = build_router_with_mock(target_url.clone(), |mock| {
+        let target_url = "http://target.com";
+        let router = build_router_with_mock(target_url, |mock| {
             mock.expect_execute()
                 .withf(move |req| {
                     req.method == ForwardServiceRequestHttpMethod::Get
@@ -417,15 +415,14 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_forwards_request_body() {
-        let target_url = String::from("http://target.com");
+        let target_url = "http://target.com";
         let request_body = r#"{"key": "value"}"#;
-        let router = build_router_with_mock(target_url.clone(), |mock| {
-            let expected_body = request_body.to_string();
+        let router = build_router_with_mock(target_url, |mock| {
             mock.expect_execute()
                 .withf(move |req| {
                     req.method == ForwardServiceRequestHttpMethod::Post
                         && req.url == format!("{target_url}/")
-                        && req.body == Bytes::from(expected_body.clone())
+                        && req.body == Bytes::from(request_body)
                 })
                 .returning(|_| {
                     Ok(ForwardServiceResponse {
@@ -452,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_forwards_request_path() {
-        let router = build_router_with_mock(String::from("http://target.com"), |mock| {
+        let router = build_router_with_mock("http://target.com", |mock| {
             mock.expect_execute()
                 .withf(|req| req.url == "http://target.com/api/users")
                 .returning(|_| {
@@ -486,7 +483,7 @@ mod tests {
             (Method::DELETE, "DELETE"),
             (Method::PATCH, "PATCH"),
         ] {
-            let router = build_router_with_mock(String::from("http://target.com"), |mock| {
+            let router = build_router_with_mock("http://target.com", |mock| {
                 let expected_method = method_str.to_string();
                 mock.expect_execute()
                     .withf(move |req| req.method.to_string() == expected_method)
@@ -502,7 +499,7 @@ mod tests {
             let response = router
                 .oneshot(
                     Request::builder()
-                        .method(method.clone())
+                        .method(method)
                         .uri("/")
                         .body(Body::empty())
                         .unwrap(),
@@ -521,7 +518,7 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_handles_network_error() {
-        let router = build_router_with_mock(String::from("http://target.com"), |mock| {
+        let router = build_router_with_mock("http://target.com", |mock| {
             mock.expect_execute().returning(|_| {
                 Err(ForwardServiceError::Network(
                     "Connection refused".to_string(),
@@ -539,7 +536,7 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_handles_timeout_error() {
-        let router = build_router_with_mock(String::from("http://target.com"), |mock| {
+        let router = build_router_with_mock("http://target.com", |mock| {
             mock.expect_execute()
                 .returning(|_| Err(ForwardServiceError::Timeout));
         });
@@ -554,7 +551,7 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_handles_invalid_request_error() {
-        let router = build_router_with_mock(String::from("http://target.com"), |mock| {
+        let router = build_router_with_mock("http://target.com", |mock| {
             mock.expect_execute()
                 .returning(|_| Err(ForwardServiceError::InvalidRequest("Bad URL".to_string())));
         });
@@ -569,8 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn forward_endpoint_includes_request_id_in_response() {
-        let router =
-            build_router_with_mock(String::from("http://target.com"), build_success_mock());
+        let router = build_router_with_mock("http://target.com", build_success_mock());
 
         let response = router
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -585,8 +581,7 @@ mod tests {
     #[tokio::test]
     async fn forward_endpoint_propagates_existing_request_id() {
         let custom_request_id = "custom-12345";
-        let router =
-            build_router_with_mock(String::from("http://target.com"), build_success_mock());
+        let router = build_router_with_mock("http://target.com", build_success_mock());
 
         let response = router
             .oneshot(
