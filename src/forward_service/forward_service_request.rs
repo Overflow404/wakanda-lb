@@ -6,7 +6,7 @@ use std::{
 
 use bytes::Bytes;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ForwardServiceRequestHeaders(pub HashMap<String, String>);
 
 impl ForwardServiceRequestHeaders {
