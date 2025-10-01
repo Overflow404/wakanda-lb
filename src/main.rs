@@ -162,7 +162,7 @@ async fn main() {
     info!("Server started on port {}", args.port);
 
     let forward_service = Arc::new(ReqwestForwardService::default());
-    let target_servers_base_url = String::from(args.target_servers_base_url);
+    let target_servers_base_url = args.target_servers.get(0).unwrap().to_string();
 
     let state = ServerState {
         forward_service,
@@ -176,7 +176,9 @@ async fn main() {
 mod tests {
 
     use crate::forward_service::forward_service::MockForwardService;
-    use crate::forward_service::forward_service_request::{ForwardServiceHeaders, ForwardServiceRequestHttpMethod};
+    use crate::forward_service::forward_service_request::{
+        ForwardServiceHeaders, ForwardServiceRequestHttpMethod,
+    };
     use crate::forward_service::forward_service_response::{
         ForwardServiceError, ForwardServiceResponse,
     };

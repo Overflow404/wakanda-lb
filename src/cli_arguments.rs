@@ -6,8 +6,8 @@ pub(crate) struct CliArguments {
     #[arg(short, long)]
     pub port: u16,
 
-    #[arg(short, long)]
-    pub target_servers_base_url: String,
+    #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ',')]
+    pub target_servers: Vec<String>,
 }
 
 #[cfg(test)]
@@ -22,20 +22,31 @@ mod test {
             "load-balancer",
             "--port",
             "3000",
-            "--target-servers-base-url",
-            "http://localhost:9000",
+            "--target-servers",
+            "http://localhost:9000,http://localhost:9001",
         ]);
 
         assert_eq!(args.port, 3000);
-        assert_eq!(args.target_servers_base_url, "http://localhost:9000");
+        assert_eq!(
+            args.target_servers,
+            Vec::from(["http://localhost:9000", "http://localhost:9001"])
+        );
     }
 
     #[test]
     fn test_cli_arguments_short_flags() {
-        let args =
-            CliArguments::parse_from(["load-balancer", "-p", "3000", "-t", "https://example.com"]);
+        let args = CliArguments::parse_from([
+            "load-balancer",
+            "-p",
+            "3000",
+            "-t",
+            "http://localhost:9000,http://localhost:9001",
+        ]);
 
         assert_eq!(args.port, 3000);
-        assert_eq!(args.target_servers_base_url, "https://example.com");
+        assert_eq!(
+            args.target_servers,
+            Vec::from(["http://localhost:9000", "http://localhost:9001"])
+        );
     }
 }
