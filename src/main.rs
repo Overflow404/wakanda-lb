@@ -27,7 +27,7 @@ use axum::routing::any;
 use axum::{Router, routing::get};
 use clap::Parser;
 use http::StatusCode;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
@@ -173,26 +173,28 @@ async fn main() {
     info!("Server started on port {}", args.port);
 
     let http_client = Arc::new(ReqwestHttpClient::default());
-    let target_servers = Arc::new(RwLock::new(Vec::from(args.target_servers)));
+    let target_servers = args.target_servers;
+
+    let background_checker = Arc::new(TimedBackgroundChecker::new(
+        Arc::new(ReqwestHttpClient::default()),
+        target_servers,
+        args.target_servers_health_path,
+        Duration::from_secs(args.health_checker_polling_seconds),
+    ));
 
     let select_server: Arc<dyn SelectServer + Send + Sync> = match args.routing_policy {
-        RoutingPolicy::RoundRobin => {
-            Arc::new(RoundRobinSelectServer::new(Arc::clone(&target_servers)))
-        }
-        RoutingPolicy::Random => Arc::new(RandomSelectServer::new(Arc::clone(&target_servers))),
+        RoutingPolicy::RoundRobin => Arc::new(RoundRobinSelectServer::new(Arc::clone(
+            &background_checker.healthy_servers,
+        ))),
+        RoutingPolicy::Random => Arc::new(RandomSelectServer::new(Arc::clone(
+            &background_checker.healthy_servers,
+        ))),
     };
 
     let state = ServerState {
         http_client,
         select_server,
     };
-
-    let background_checker = Arc::new(TimedBackgroundChecker {
-        http_client: Arc::new(ReqwestHttpClient::default()),
-        target_servers: Arc::clone(&target_servers),
-        health_endpoint: args.target_servers_health_path,
-        polling_interval: Duration::from_secs(args.health_checker_polling_seconds),
-    });
 
     tokio::spawn(async move {
         background_checker.execute().await;
