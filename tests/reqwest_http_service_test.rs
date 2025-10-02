@@ -1,15 +1,15 @@
 #[cfg(test)]
-mod reqwest_wakanda_http_service {
+mod reqwest_http_client {
 
     use bytes::Bytes;
 
-    use load_balancer::wakanda_http_service::reqwest_http_service::ReqwestHttpService;
-    use load_balancer::wakanda_http_service::wakanda_http_service::WakandaHttpService;
-    use load_balancer::wakanda_http_service::wakanda_http_service_request::{
-        WakandaHttpServiceHeaders, WakandaHttpServiceRequest, WakandaHttpServiceRequestHttpMethod,
+    use load_balancer::http_client::error::Error;
+    use load_balancer::http_client::reqwest_http_client::ReqwestHttpClient;
+    use load_balancer::http_client::http_client::HttpClient;
+    use load_balancer::http_client::request::{
+        RequestHeaders, Request, RequestMethod,
     };
 
-    use load_balancer::wakanda_http_service::wakanda_http_service_response::WakandaHttpServiceError;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -29,27 +29,27 @@ mod reqwest_wakanda_http_service {
             .mount(&mock_server)
             .await;
 
-        let wakanda_http_service = ReqwestHttpService::default();
+        let http_client = ReqwestHttpClient::default();
 
-        let wakanda_http_service_request = WakandaHttpServiceRequest {
+        let http_client_request = Request {
             url: format!("{}{}", mock_server.uri(), "/v1/api/user".to_string()),
-            method: WakandaHttpServiceRequestHttpMethod::Get,
-            headers: WakandaHttpServiceHeaders::from([
+            method: RequestMethod::Get,
+            headers: RequestHeaders::from([
                 ("Authorization".to_string(), "Bearer secret".to_string()),
                 ("Content-Type".to_string(), "text/plain".to_string()),
             ]),
             body: Bytes::new(),
         };
 
-        let wakanda_http_service_response = wakanda_http_service
-            .execute(wakanda_http_service_request)
+        let http_client_response = http_client
+            .execute(http_client_request)
             .await
             .unwrap();
 
-        assert_eq!(wakanda_http_service_response.status, 200);
-        assert_eq!(wakanda_http_service_response.body, Bytes::from("OK"));
+        assert_eq!(http_client_response.status, 200);
+        assert_eq!(http_client_response.body, Bytes::from("OK"));
         assert_eq!(
-            wakanda_http_service_response
+            http_client_response
                 .headers
                 .get("x-request-id")
                 .unwrap(),
@@ -73,55 +73,55 @@ mod reqwest_wakanda_http_service {
             .mount(&mock_server)
             .await;
 
-        let wakanda_http_service = ReqwestHttpService::default();
-        let wakanda_http_service_request = WakandaHttpServiceRequest {
+        let http_client = ReqwestHttpClient::default();
+        let http_client_request = Request {
             url: format!("{}{}", mock_server.uri(), "/api/data".to_string()),
-            method: WakandaHttpServiceRequestHttpMethod::Post,
-            headers: WakandaHttpServiceHeaders::from([
+            method: RequestMethod::Post,
+            headers: RequestHeaders::from([
                 ("Authorization".to_string(), "Bearer secret".to_string()),
                 ("Content-Type".to_string(), "text/plain".to_string()),
             ]),
             body: Bytes::from("OK"),
         };
 
-        let wakanda_http_service_response = wakanda_http_service
-            .execute(wakanda_http_service_request)
+        let http_client_response = http_client
+            .execute(http_client_request)
             .await
             .unwrap();
 
-        assert_eq!(wakanda_http_service_response.status, 201);
+        assert_eq!(http_client_response.status, 201);
         assert_eq!(
-            wakanda_http_service_response
+            http_client_response
                 .headers
                 .get("x-request-id")
                 .unwrap(),
             "12345"
         );
-        assert_eq!(wakanda_http_service_response.body, Bytes::from("Created"));
+        assert_eq!(http_client_response.body, Bytes::from("Created"));
     }
 
     #[tokio::test]
     async fn should_detect_a_network_error() {
-        let wakanda_http_service = ReqwestHttpService::default();
-        let wakanda_http_service_request = WakandaHttpServiceRequest {
+        let http_client = ReqwestHttpClient::default();
+        let http_client_request = Request {
             url: format!(
                 "{}{}",
                 "http://unknown:1234".to_string(),
                 "/health".to_string()
             ),
-            method: WakandaHttpServiceRequestHttpMethod::Get,
-            headers: WakandaHttpServiceHeaders::default(),
+            method: RequestMethod::Get,
+            headers: RequestHeaders::default(),
             body: Bytes::new(),
         };
 
-        let wakanda_http_service_response = wakanda_http_service
-            .execute(wakanda_http_service_request)
+        let http_client_response = http_client
+            .execute(http_client_request)
             .await;
 
-        assert!(wakanda_http_service_response.is_err());
+        assert!(http_client_response.is_err());
         assert!(matches!(
-            wakanda_http_service_response.unwrap_err(),
-            WakandaHttpServiceError::Network(_)
+            http_client_response.unwrap_err(),
+            Error::Network(_)
         ));
     }
 
@@ -136,28 +136,28 @@ mod reqwest_wakanda_http_service {
             .mount(&mock_server)
             .await;
 
-        let wakanda_http_service = ReqwestHttpService::new(
+        let http_client = ReqwestHttpClient::new(
             reqwest::Client::builder()
                 .timeout(std::time::Duration::from_millis(1))
                 .build()
                 .unwrap(),
         );
 
-        let wakanda_http_service_request = WakandaHttpServiceRequest {
+        let http_client_request = Request {
             url: format!("{}{}", mock_server.uri(), "/slow".to_string()),
-            method: WakandaHttpServiceRequestHttpMethod::Get,
-            headers: WakandaHttpServiceHeaders::default(),
+            method: RequestMethod::Get,
+            headers: RequestHeaders::default(),
             body: Bytes::new(),
         };
 
-        let wakanda_http_service_response = wakanda_http_service
-            .execute(wakanda_http_service_request)
+        let http_client_response = http_client
+            .execute(http_client_request)
             .await;
 
-        assert!(wakanda_http_service_response.is_err());
+        assert!(http_client_response.is_err());
         assert!(matches!(
-            wakanda_http_service_response.unwrap_err(),
-            WakandaHttpServiceError::Timeout
+            http_client_response.unwrap_err(),
+            Error::Timeout
         ));
     }
 
@@ -166,11 +166,11 @@ mod reqwest_wakanda_http_service {
         let mock_server = MockServer::start().await;
 
         for (method_enum, method_str) in [
-            (WakandaHttpServiceRequestHttpMethod::Get, "GET"),
-            (WakandaHttpServiceRequestHttpMethod::Post, "POST"),
-            (WakandaHttpServiceRequestHttpMethod::Put, "PUT"),
-            (WakandaHttpServiceRequestHttpMethod::Delete, "DELETE"),
-            (WakandaHttpServiceRequestHttpMethod::Patch, "PATCH"),
+            (RequestMethod::Get, "GET"),
+            (RequestMethod::Post, "POST"),
+            (RequestMethod::Put, "PUT"),
+            (RequestMethod::Delete, "DELETE"),
+            (RequestMethod::Patch, "PATCH"),
         ] {
             Mock::given(method(method_str))
                 .and(path("/health"))
@@ -178,20 +178,20 @@ mod reqwest_wakanda_http_service {
                 .mount(&mock_server)
                 .await;
 
-            let wakanda_http_service = ReqwestHttpService::default();
-            let wakanda_http_service_request = WakandaHttpServiceRequest {
+            let http_client = ReqwestHttpClient::default();
+            let http_client_request = Request {
                 url: format!("{}{}", mock_server.uri(), "/health".to_string()),
                 method: method_enum,
-                headers: WakandaHttpServiceHeaders::default(),
+                headers: RequestHeaders::default(),
                 body: Bytes::new(),
             };
 
-            let wakanda_http_service_response = wakanda_http_service
-                .execute(wakanda_http_service_request)
+            let http_client_response = http_client
+                .execute(http_client_request)
                 .await
                 .unwrap();
 
-            assert_eq!(wakanda_http_service_response.status, 200);
+            assert_eq!(http_client_response.status, 200);
         }
     }
 }

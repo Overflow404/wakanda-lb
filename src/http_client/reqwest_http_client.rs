@@ -3,29 +3,28 @@ use axum::response::IntoResponse;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use tracing::info;
 
-use crate::wakanda_http_service::{
-    wakanda_http_service::WakandaHttpService,
-    wakanda_http_service_error::WakandaHttpServiceErrorChecker,
-    wakanda_http_service_request::{
-        WakandaHttpServiceHeaders, WakandaHttpServiceRequest, WakandaHttpServiceRequestError,
-        WakandaHttpServiceRequestHttpMethod,
+use crate::http_client::{
+    http_client::HttpClient,
+    error::{Error, HttpClientErrorChecker},
+    request::{
+        RequestHeaders, Request, RequestMethod, HttpClientRequestRequestError
     },
-    wakanda_http_service_response::{WakandaHttpServiceError, WakandaHttpServiceResponse},
+    response::Response,
 };
 
 #[derive(Clone)]
-pub struct ReqwestHttpService {
+pub struct ReqwestHttpClient {
     client: reqwest::Client,
 }
 
-impl ReqwestHttpService {
+impl ReqwestHttpClient {
     #[allow(dead_code)]
     pub fn new(client: reqwest::Client) -> Self {
         Self { client }
     }
 }
 
-impl Default for ReqwestHttpService {
+impl Default for ReqwestHttpClient {
     fn default() -> Self {
         Self {
             client: reqwest::Client::builder()
@@ -37,11 +36,11 @@ impl Default for ReqwestHttpService {
 }
 
 #[async_trait]
-impl WakandaHttpService for ReqwestHttpService {
+impl HttpClient for ReqwestHttpClient {
     async fn execute(
         &self,
-        request: WakandaHttpServiceRequest,
-    ) -> Result<WakandaHttpServiceResponse, WakandaHttpServiceError> {
+        request: Request,
+    ) -> Result<Response, Error> {
         info!("Proxying {:#?}", request);
 
         let reqwuest_builder = self
@@ -53,18 +52,18 @@ impl WakandaHttpService for ReqwestHttpService {
         let reqwest_response = reqwuest_builder
             .send()
             .await
-            .map_err(WakandaHttpServiceError::from)?;
+            .map_err(Error::from)?;
 
         let http_status = reqwest_response.status().as_u16();
 
-        let headers: WakandaHttpServiceHeaders = reqwest_response.headers().into();
+        let headers: RequestHeaders = reqwest_response.headers().into();
 
         let body = reqwest_response
             .bytes()
             .await
-            .map_err(|e| WakandaHttpServiceError::Network(e.to_string()))?;
+            .map_err(|e| Error::Network(e.to_string()))?;
 
-        Ok(WakandaHttpServiceResponse {
+        Ok(Response {
             status: http_status,
             headers,
             body,
@@ -72,7 +71,7 @@ impl WakandaHttpService for ReqwestHttpService {
     }
 }
 
-impl WakandaHttpServiceErrorChecker for reqwest::Error {
+impl HttpClientErrorChecker for reqwest::Error {
     fn is_timeout(&self) -> bool {
         self.is_timeout()
     }
@@ -90,40 +89,40 @@ impl WakandaHttpServiceErrorChecker for reqwest::Error {
     }
 }
 
-impl<T: WakandaHttpServiceErrorChecker> From<T> for WakandaHttpServiceError {
+impl<T: HttpClientErrorChecker> From<T> for Error {
     fn from(err: T) -> Self {
         if err.is_timeout() {
-            WakandaHttpServiceError::Timeout
+            Error::Timeout
         } else if err.is_connect() || err.is_request() {
-            WakandaHttpServiceError::Network(err.error_string())
+            Error::Network(err.error_string())
         } else {
-            WakandaHttpServiceError::InvalidRequest(err.error_string())
+            Error::InvalidRequest(err.error_string())
         }
     }
 }
 
-impl From<&HeaderMap> for WakandaHttpServiceHeaders {
+impl From<&HeaderMap> for RequestHeaders {
     fn from(headers: &HeaderMap) -> Self {
         let map = headers
             .iter()
             .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
             .collect();
-        WakandaHttpServiceHeaders(map)
+        RequestHeaders(map)
     }
 }
 
-impl From<HeaderMap> for WakandaHttpServiceHeaders {
+impl From<HeaderMap> for RequestHeaders {
     fn from(headers: HeaderMap) -> Self {
         let map = headers
             .iter()
             .filter_map(|(k, v)| v.to_str().ok().map(|val| (k.to_string(), val.to_string())))
             .collect();
-        WakandaHttpServiceHeaders(map)
+        RequestHeaders(map)
     }
 }
 
-impl From<WakandaHttpServiceHeaders> for HeaderMap {
-    fn from(h: WakandaHttpServiceHeaders) -> Self {
+impl From<RequestHeaders> for HeaderMap {
+    fn from(h: RequestHeaders) -> Self {
         let mut header_map = HeaderMap::new();
         for (k, v) in h.iter() {
             if let (Ok(name), Ok(value)) = (
@@ -137,37 +136,37 @@ impl From<WakandaHttpServiceHeaders> for HeaderMap {
     }
 }
 
-impl IntoResponse for WakandaHttpServiceRequestError {
+impl IntoResponse for HttpClientRequestRequestError {
     fn into_response(self) -> axum::response::Response {
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 
-impl TryFrom<&Method> for WakandaHttpServiceRequestHttpMethod {
-    type Error = WakandaHttpServiceRequestError;
+impl TryFrom<&Method> for RequestMethod {
+    type Error = HttpClientRequestRequestError;
 
     fn try_from(value: &Method) -> Result<Self, Self::Error> {
         match *value {
-            Method::GET => Ok(WakandaHttpServiceRequestHttpMethod::Get),
-            Method::POST => Ok(WakandaHttpServiceRequestHttpMethod::Post),
-            Method::PUT => Ok(WakandaHttpServiceRequestHttpMethod::Put),
-            Method::DELETE => Ok(WakandaHttpServiceRequestHttpMethod::Delete),
-            Method::PATCH => Ok(WakandaHttpServiceRequestHttpMethod::Patch),
-            _ => Err(WakandaHttpServiceRequestError::UnsupportedMethod(
+            Method::GET => Ok(RequestMethod::Get),
+            Method::POST => Ok(RequestMethod::Post),
+            Method::PUT => Ok(RequestMethod::Put),
+            Method::DELETE => Ok(RequestMethod::Delete),
+            Method::PATCH => Ok(RequestMethod::Patch),
+            _ => Err(HttpClientRequestRequestError::UnsupportedMethod(
                 value.to_string(),
             )),
         }
     }
 }
 
-impl From<WakandaHttpServiceRequestHttpMethod> for reqwest::Method {
-    fn from(value: WakandaHttpServiceRequestHttpMethod) -> Self {
+impl From<RequestMethod> for reqwest::Method {
+    fn from(value: RequestMethod) -> Self {
         match value {
-            WakandaHttpServiceRequestHttpMethod::Get => reqwest::Method::GET,
-            WakandaHttpServiceRequestHttpMethod::Post => reqwest::Method::POST,
-            WakandaHttpServiceRequestHttpMethod::Put => reqwest::Method::PUT,
-            WakandaHttpServiceRequestHttpMethod::Delete => reqwest::Method::DELETE,
-            WakandaHttpServiceRequestHttpMethod::Patch => reqwest::Method::PATCH,
+            RequestMethod::Get => reqwest::Method::GET,
+            RequestMethod::Post => reqwest::Method::POST,
+            RequestMethod::Put => reqwest::Method::PUT,
+            RequestMethod::Delete => reqwest::Method::DELETE,
+            RequestMethod::Patch => reqwest::Method::PATCH,
         }
     }
 }
@@ -177,47 +176,45 @@ mod tests {
     use axum::response::IntoResponse;
     use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 
-    use crate::wakanda_http_service::{
-        wakanda_http_service_error::MockWakandaHttpServiceErrorChecker,
-        wakanda_http_service_request::{
-            WakandaHttpServiceHeaders, WakandaHttpServiceRequestError,
-            WakandaHttpServiceRequestHttpMethod,
+    use crate::http_client::{
+        error::{Error, MockHttpClientErrorChecker},
+        request::{
+            RequestHeaders, RequestMethod, HttpClientRequestRequestError
         },
-        wakanda_http_service_response::WakandaHttpServiceError,
     };
 
     #[test]
     fn converts_reqwest_errors_into_domain_variants() {
-        let mut mock = MockWakandaHttpServiceErrorChecker::new();
+        let mut mock = MockHttpClientErrorChecker::new();
         mock.expect_is_timeout().return_const(true);
-        let result: WakandaHttpServiceError = mock.into();
-        assert!(matches!(result, WakandaHttpServiceError::Timeout));
+        let result: Error = mock.into();
+        assert!(matches!(result, Error::Timeout));
 
-        mock = MockWakandaHttpServiceErrorChecker::new();
+        mock = MockHttpClientErrorChecker::new();
         mock.expect_is_timeout().return_const(false);
         mock.expect_is_connect().return_const(true);
         mock.expect_error_string()
             .return_const("connect error".to_string());
-        let result: WakandaHttpServiceError = mock.into();
-        assert!(matches!(result, WakandaHttpServiceError::Network(_)));
+        let result: Error = mock.into();
+        assert!(matches!(result, Error::Network(_)));
 
-        mock = MockWakandaHttpServiceErrorChecker::new();
+        mock = MockHttpClientErrorChecker::new();
         mock.expect_is_timeout().return_const(false);
         mock.expect_is_connect().return_const(false);
         mock.expect_is_request().return_const(true);
         mock.expect_error_string()
             .return_const("request error".to_string());
-        let result: WakandaHttpServiceError = mock.into();
-        assert!(matches!(result, WakandaHttpServiceError::Network(_)));
+        let result: Error = mock.into();
+        assert!(matches!(result, Error::Network(_)));
 
-        mock = MockWakandaHttpServiceErrorChecker::new();
+        mock = MockHttpClientErrorChecker::new();
         mock.expect_is_timeout().return_const(false);
         mock.expect_is_connect().return_const(false);
         mock.expect_is_request().return_const(false);
         mock.expect_error_string()
             .return_const("other error".to_string());
-        let result: WakandaHttpServiceError = mock.into();
-        assert!(matches!(result, WakandaHttpServiceError::InvalidRequest(_)));
+        let result: Error = mock.into();
+        assert!(matches!(result, Error::InvalidRequest(_)));
     }
 
     #[test]
@@ -236,8 +233,8 @@ mod tests {
             HeaderValue::from_bytes(&[0xFF, 0xFE]).unwrap(),
         );
 
-        let result_borrowed: WakandaHttpServiceHeaders = (&headers).into();
-        let result_owned: WakandaHttpServiceHeaders = headers.into();
+        let result_borrowed: RequestHeaders = (&headers).into();
+        let result_owned: RequestHeaders = headers.into();
 
         assert_eq!(result_borrowed.0.len(), 2);
         assert_eq!(result_owned.0.len(), 2);
@@ -266,13 +263,13 @@ mod tests {
 
     #[test]
     fn builds_header_map_from_valid_domain_headers() {
-        let mut wakanda_http_service_request_headers = WakandaHttpServiceHeaders::default();
-        wakanda_http_service_request_headers
+        let mut http_client_request_headers = RequestHeaders::default();
+        http_client_request_headers
             .insert("content-type".to_string(), "application/json".to_string());
-        wakanda_http_service_request_headers
+        http_client_request_headers
             .insert("x-custom-header".to_string(), "custom-value".to_string());
 
-        let result: HeaderMap = wakanda_http_service_request_headers.into();
+        let result: HeaderMap = http_client_request_headers.into();
         assert_eq!(
             result.get("content-type"),
             Some(&HeaderValue::from_static("application/json"))
@@ -286,7 +283,7 @@ mod tests {
 
     #[test]
     fn converts_domain_request_error_into_axum_response() {
-        let error = WakandaHttpServiceRequestError::UnsupportedMethod(String::from(
+        let error = HttpClientRequestRequestError::UnsupportedMethod(String::from(
             "OPTION is not supported",
         ));
         let actual_response = error.into_response();
@@ -298,33 +295,33 @@ mod tests {
     #[test]
     fn converts_domain_http_methods_into_http_methods() {
         assert_eq!(
-            WakandaHttpServiceRequestHttpMethod::try_from(&Method::GET).unwrap(),
-            WakandaHttpServiceRequestHttpMethod::Get
+            RequestMethod::try_from(&Method::GET).unwrap(),
+            RequestMethod::Get
         );
 
         assert_eq!(
-            WakandaHttpServiceRequestHttpMethod::try_from(&Method::POST).unwrap(),
-            WakandaHttpServiceRequestHttpMethod::Post
+            RequestMethod::try_from(&Method::POST).unwrap(),
+            RequestMethod::Post
         );
 
         assert_eq!(
-            WakandaHttpServiceRequestHttpMethod::try_from(&Method::PUT).unwrap(),
-            WakandaHttpServiceRequestHttpMethod::Put
+            RequestMethod::try_from(&Method::PUT).unwrap(),
+            RequestMethod::Put
         );
 
         assert_eq!(
-            WakandaHttpServiceRequestHttpMethod::try_from(&Method::DELETE).unwrap(),
-            WakandaHttpServiceRequestHttpMethod::Delete
+            RequestMethod::try_from(&Method::DELETE).unwrap(),
+            RequestMethod::Delete
         );
 
         assert_eq!(
-            WakandaHttpServiceRequestHttpMethod::try_from(&Method::PATCH).unwrap(),
-            WakandaHttpServiceRequestHttpMethod::Patch
+            RequestMethod::try_from(&Method::PATCH).unwrap(),
+            RequestMethod::Patch
         );
 
-        let err = WakandaHttpServiceRequestHttpMethod::try_from(&Method::OPTIONS).unwrap_err();
+        let err = RequestMethod::try_from(&Method::OPTIONS).unwrap_err();
         match err {
-            WakandaHttpServiceRequestError::UnsupportedMethod(m) => {
+            HttpClientRequestRequestError::UnsupportedMethod(m) => {
                 assert_eq!(m, "OPTIONS".to_string())
             }
         }
@@ -333,23 +330,23 @@ mod tests {
     #[test]
     fn converts_http_methods_into_domain_http_methods() {
         assert_eq!(
-            Method::from(WakandaHttpServiceRequestHttpMethod::Get),
+            Method::from(RequestMethod::Get),
             Method::GET
         );
         assert_eq!(
-            Method::from(WakandaHttpServiceRequestHttpMethod::Post),
+            Method::from(RequestMethod::Post),
             Method::POST
         );
         assert_eq!(
-            Method::from(WakandaHttpServiceRequestHttpMethod::Put),
+            Method::from(RequestMethod::Put),
             Method::PUT
         );
         assert_eq!(
-            Method::from(WakandaHttpServiceRequestHttpMethod::Delete),
+            Method::from(RequestMethod::Delete),
             Method::DELETE
         );
         assert_eq!(
-            Method::from(WakandaHttpServiceRequestHttpMethod::Patch),
+            Method::from(RequestMethod::Patch),
             Method::PATCH
         );
     }

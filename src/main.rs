@@ -1,31 +1,34 @@
+pub(crate) mod background_health_checker;
 pub(crate) mod cli_arguments;
+pub(crate) mod http_client;
 pub(crate) mod request_id;
-pub(crate) mod select_server_service;
-pub(crate) mod wakanda_http_service;
+pub(crate) mod select_server;
 
+use crate::background_health_checker::background_health_checker::BackgroundChecker;
+use crate::background_health_checker::timed_background_health_checker::TimedBackgroundChecker;
 use crate::cli_arguments::{CliArguments, RoutingPolicy};
 
+use crate::http_client::error::Error as HttpClientError;
+use crate::http_client::http_client::HttpClient;
+use crate::http_client::request::{Request as HttpClientRequest, RequestMethod};
+use crate::http_client::reqwest_http_client::ReqwestHttpClient;
+use crate::http_client::response::Response as HttpClientResponse;
 use crate::request_id::{LoadBalancerRequestId, UNKNOWN_REQUEST_ID, X_REQUEST_ID};
-use crate::select_server_service::random_select_server_service::RandomSelectServerService;
-use crate::select_server_service::round_robin_select_server_service::RoundRobinSelectServerService;
-use crate::select_server_service::select_server_service::SelectServerService;
-use crate::select_server_service::select_server_service_request::SelectServerServiceRequest;
-use crate::wakanda_http_service::reqwest_http_service::ReqwestHttpService;
-use crate::wakanda_http_service::wakanda_http_service::WakandaHttpService;
-use crate::wakanda_http_service::wakanda_http_service_request::{
-    WakandaHttpServiceRequest, WakandaHttpServiceRequestHttpMethod,
-};
-use crate::wakanda_http_service::wakanda_http_service_response::{
-    WakandaHttpServiceError, WakandaHttpServiceResponse,
-};
+use crate::select_server::random_select_server::RandomSelectServer;
+use crate::select_server::request::Request as SelectServerRequest;
+use crate::select_server::round_robin_select_server::RoundRobinSelectServer;
+use crate::select_server::select_server::SelectServer;
+
 use axum::body::{Body, to_bytes};
-use axum::extract::{Request, State};
+use axum::extract::Request as AxumRequest;
+use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Router, routing::get};
 use clap::Parser;
 use http::StatusCode;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::{error, info};
@@ -34,8 +37,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Clone)]
 pub(crate) struct ServerState {
-    wakanda_http_service: Arc<dyn WakandaHttpService + Send + Sync>,
-    select_server_service: Arc<dyn SelectServerService>,
+    http_client: Arc<dyn HttpClient + Send + Sync>,
+    select_server: Arc<dyn SelectServer>,
 }
 
 async fn health_endpoint() -> impl IntoResponse {
@@ -45,16 +48,13 @@ async fn health_endpoint() -> impl IntoResponse {
 
 async fn proxy_endpoint(
     State(state): State<ServerState>,
-    request: Request<Body>,
+    request: AxumRequest<Body>,
 ) -> impl IntoResponse {
     info!("Proxing request");
 
     let (parts, body) = request.into_parts();
 
-    let server = match state
-        .select_server_service
-        .execute(SelectServerServiceRequest {})
-    {
+    let server = match state.select_server.execute(SelectServerRequest {}) {
         Ok(selected_server) => selected_server.server,
         Err(error) => {
             error!("No one is alive: {}", error);
@@ -74,7 +74,7 @@ async fn proxy_endpoint(
         }
     };
 
-    let method: WakandaHttpServiceRequestHttpMethod = match (&parts.method).try_into() {
+    let method: RequestMethod = match (&parts.method).try_into() {
         Ok(method) => method,
         Err(error) => {
             error!("{}", error.to_string());
@@ -83,8 +83,8 @@ async fn proxy_endpoint(
     };
 
     let result = state
-        .wakanda_http_service
-        .execute(WakandaHttpServiceRequest {
+        .http_client
+        .execute(HttpClientRequest {
             method,
             headers,
             body,
@@ -93,7 +93,7 @@ async fn proxy_endpoint(
         .await;
 
     match result {
-        Ok(wakanda_http_service_response) => wakanda_http_service_response.into(),
+        Ok(http_client_response) => http_client_response.into(),
         Err(error) => {
             let (status, error) = error.into();
             error!("Error: {} Status: {}", error, status);
@@ -103,8 +103,8 @@ async fn proxy_endpoint(
     }
 }
 
-impl From<WakandaHttpServiceResponse> for Response<Body> {
-    fn from(value: WakandaHttpServiceResponse) -> Self {
+impl From<HttpClientResponse> for Response<Body> {
+    fn from(value: HttpClientResponse) -> Self {
         let mut response = Response::builder()
             .status(StatusCode::from_u16(value.status).unwrap_or(StatusCode::OK));
 
@@ -116,14 +116,12 @@ impl From<WakandaHttpServiceResponse> for Response<Body> {
     }
 }
 
-impl From<WakandaHttpServiceError> for (StatusCode, &str) {
-    fn from(value: WakandaHttpServiceError) -> Self {
+impl From<HttpClientError> for (StatusCode, &str) {
+    fn from(value: HttpClientError) -> Self {
         match value {
-            WakandaHttpServiceError::Network(_) => (StatusCode::BAD_GATEWAY, "Network error"),
-            WakandaHttpServiceError::InvalidRequest(_) => {
-                (StatusCode::BAD_REQUEST, "Invalid request")
-            }
-            WakandaHttpServiceError::Timeout => (StatusCode::GATEWAY_TIMEOUT, "Timeout"),
+            HttpClientError::Network(_) => (StatusCode::BAD_GATEWAY, "Network error"),
+            HttpClientError::InvalidRequest(_) => (StatusCode::BAD_REQUEST, "Invalid request"),
+            HttpClientError::Timeout => (StatusCode::GATEWAY_TIMEOUT, "Timeout"),
         }
     }
 }
@@ -136,7 +134,7 @@ pub(crate) fn router(server_state: ServerState) -> Router {
         .with_state(server_state)
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<_>| {
+                .make_span_with(|request: &AxumRequest<_>| {
                     let request_id = request
                         .headers()
                         .get(X_REQUEST_ID)
@@ -176,22 +174,34 @@ async fn main() {
 
     info!("Server started on port {}", args.port);
 
-    let wakanda_http_service = Arc::new(ReqwestHttpService::default());
+    let http_client = Arc::new(ReqwestHttpClient::default());
     let target_servers = Arc::new(RwLock::new(Vec::from(args.target_servers)));
 
-
-    let select_server_service: Arc<dyn SelectServerService + Send + Sync> =
+    let select_server: Arc<dyn SelectServer + Send + Sync> =
         match args.routing_policy {
-            RoutingPolicy::RoundRobin => {
-                Arc::new(RoundRobinSelectServerService::new(target_servers))
+            RoutingPolicy::RoundRobin => Arc::new(RoundRobinSelectServer::new(Arc::clone(
+                &target_servers,
+            ))),
+            RoutingPolicy::Random => {
+                Arc::new(RandomSelectServer::new(Arc::clone(&target_servers)))
             }
-            RoutingPolicy::Random => Arc::new(RandomSelectServerService::new(target_servers)),
         };
 
     let state = ServerState {
-        wakanda_http_service,
-        select_server_service,
+        http_client,
+        select_server,
     };
+
+    let background_checker = Arc::new(TimedBackgroundChecker {
+        http_client: Arc::new(ReqwestHttpClient::default()),
+        target_servers: Arc::clone(&target_servers),
+        health_endpoint: String::from("/health"),
+        polling_interval: Duration::from_secs(10),
+    });
+
+    tokio::spawn(async move {
+        background_checker.execute().await;
+    });
 
     axum::serve(tcp_listener, router(state)).await.unwrap();
 }
@@ -199,20 +209,17 @@ async fn main() {
 #[cfg(test)]
 mod tests {
 
-    use crate::select_server_service::select_server_service::MockSelectServerService;
-    use crate::select_server_service::select_server_service_error::SelectServerServiceError::NoOneIsAlive;
-    use crate::select_server_service::select_server_service_response::SelectServerServiceResponse;
-    use crate::wakanda_http_service::wakanda_http_service::MockWakandaHttpService;
-    use crate::wakanda_http_service::wakanda_http_service_request::{
-        WakandaHttpServiceHeaders, WakandaHttpServiceRequestHttpMethod,
-    };
-    use crate::wakanda_http_service::wakanda_http_service_response::{
-        WakandaHttpServiceError, WakandaHttpServiceResponse,
-    };
+    use crate::http_client::error::Error as HttpClientError;
+    use crate::select_server::error::Error as SelectServerError;
+    use crate::http_client::http_client::MockHttpClient;
+    use crate::http_client::request::{RequestHeaders, RequestMethod};
+    use crate::http_client::response::Response as HttpClientResponse;
+    use crate::select_server::response::Response  as SelectServerResponse;
+    use crate::select_server::select_server::MockSelectServer;
     use crate::{ServerState, X_REQUEST_ID, router};
     use axum::body::{Body, Bytes};
     use axum::http::{Method, Request, StatusCode};
-    use axum::response::Response;
+    use axum::response::Response as AxumResponse;
     use http::{HeaderMap, HeaderValue};
     use mockall::predicate::*;
     use std::sync::Arc;
@@ -224,41 +231,41 @@ mod tests {
 
     fn build_router_with_mocks(
         target_servers: Vec<String>,
-        setup_wakanda_http_service_mock: impl FnOnce(&mut MockWakandaHttpService),
-        setup_select_server_service_mock: impl FnOnce(&mut MockSelectServerService, Vec<String>),
+        setup_http_client_mock: impl FnOnce(&mut MockHttpClient),
+        setup_select_server_mock: impl FnOnce(&mut MockSelectServer, Vec<String>),
     ) -> axum::Router {
-        let mut wakanda_http_service_mock = MockWakandaHttpService::default();
-        setup_wakanda_http_service_mock(&mut wakanda_http_service_mock);
+        let mut http_client_mock = MockHttpClient::default();
+        setup_http_client_mock(&mut http_client_mock);
 
-        let mut select_server_service_mock = MockSelectServerService::default();
-        setup_select_server_service_mock(&mut select_server_service_mock, target_servers);
+        let mut select_server_mock = MockSelectServer::default();
+        setup_select_server_mock(&mut select_server_mock, target_servers);
 
         router(ServerState {
-            wakanda_http_service: Arc::new(wakanda_http_service_mock),
-            select_server_service: Arc::new(select_server_service_mock),
+            http_client: Arc::new(http_client_mock),
+            select_server: Arc::new(select_server_mock),
         })
     }
 
-    fn build_success_wakanda_http_service_mock() -> impl FnOnce(&mut MockWakandaHttpService) {
-        |mock: &mut MockWakandaHttpService| {
+    fn build_success_http_client_mock() -> impl FnOnce(&mut MockHttpClient) {
+        |mock: &mut MockHttpClient| {
             mock.expect_execute().returning(|_| {
-                Ok(WakandaHttpServiceResponse {
+                Ok(HttpClientResponse {
                     status: 200,
-                    headers: WakandaHttpServiceHeaders::default(),
+                    headers: RequestHeaders::default(),
                     body: Bytes::from("OK"),
                 })
             });
         }
     }
-    fn first_one_select_server_service_mock()
-    -> impl FnOnce(&mut MockSelectServerService, Vec<String>) {
-        |select_server_service_mock, target_servers| {
+    fn first_one_select_server_mock()
+    -> impl FnOnce(&mut MockSelectServer, Vec<String>) {
+        |select_server_mock, target_servers| {
             let first_server = target_servers.clone().get(0).unwrap().clone();
 
-            select_server_service_mock
+            select_server_mock
                 .expect_execute()
                 .returning(move |_| {
-                    Ok(SelectServerServiceResponse {
+                    Ok(SelectServerResponse {
                         server: first_server.clone(),
                     })
                 });
@@ -269,8 +276,8 @@ mod tests {
     async fn health_endpoint_returns_pong() {
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_wakanda_http_service_mock(),
-            first_one_select_server_service_mock(),
+            build_success_http_client_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -297,24 +304,24 @@ mod tests {
     async fn proxy_endpoint_sends_get_request() {
         let router = build_router_with_mocks(
             target_servers(),
-            |wakanda_http_service_mock| {
-                wakanda_http_service_mock
+            |http_client_mock| {
+                http_client_mock
                     .expect_execute()
                     .withf(move |req| {
-                        req.method == WakandaHttpServiceRequestHttpMethod::Get
+                        req.method == RequestMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .times(1)
                     .returning(|_| {
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 200,
-                            headers: WakandaHttpServiceHeaders::default(),
+                            headers: RequestHeaders::default(),
                             body: Bytes::from("Success"),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -343,19 +350,19 @@ mod tests {
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == WakandaHttpServiceRequestHttpMethod::Get
+                        req.method == RequestMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .returning(|_| {
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 201,
-                            headers: WakandaHttpServiceHeaders::default(),
+                            headers: RequestHeaders::default(),
                             body: Bytes::from("Created"),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -373,23 +380,23 @@ mod tests {
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == WakandaHttpServiceRequestHttpMethod::Get
+                        req.method == RequestMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .returning(|_| {
-                        let mut headers = WakandaHttpServiceHeaders::default();
+                        let mut headers = RequestHeaders::default();
                         headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
                         headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 200,
                             headers,
                             body: Bytes::from("{}"),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -415,19 +422,19 @@ mod tests {
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == WakandaHttpServiceRequestHttpMethod::Get
+                        req.method == RequestMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                     })
                     .returning(move |_| {
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 200,
-                            headers: WakandaHttpServiceHeaders::default(),
+                            headers: RequestHeaders::default(),
                             body: Bytes::from(expected_body),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -449,7 +456,7 @@ mod tests {
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == WakandaHttpServiceRequestHttpMethod::Get
+                        req.method == RequestMethod::Get
                             && req.url == "http://target.com/"
                             && req.body == Bytes::new()
                             && req.headers.get("authorization") == Some(&"Bearer token".to_string())
@@ -457,14 +464,14 @@ mod tests {
                                 == Some(&"application/json".to_string())
                     })
                     .returning(|_| {
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 200,
-                            headers: WakandaHttpServiceHeaders::default(),
+                            headers: RequestHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -490,19 +497,19 @@ mod tests {
             |mock| {
                 mock.expect_execute()
                     .withf(move |req| {
-                        req.method == WakandaHttpServiceRequestHttpMethod::Post
+                        req.method == RequestMethod::Post
                             && req.url == "http://target.com/"
                             && req.body == Bytes::from(request_body)
                     })
                     .returning(|_| {
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 200,
-                            headers: WakandaHttpServiceHeaders::default(),
+                            headers: RequestHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -527,14 +534,14 @@ mod tests {
                 mock.expect_execute()
                     .withf(|req| req.url == "http://target.com/api/users")
                     .returning(|_| {
-                        Ok(WakandaHttpServiceResponse {
+                        Ok(HttpClientResponse {
                             status: 200,
-                            headers: WakandaHttpServiceHeaders::default(),
+                            headers: RequestHeaders::default(),
                             body: Bytes::new(),
                         })
                     });
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -566,14 +573,14 @@ mod tests {
                     mock.expect_execute()
                         .withf(move |req| req.method.to_string() == expected_method)
                         .returning(|_| {
-                            Ok(WakandaHttpServiceResponse {
+                            Ok(HttpClientResponse {
                                 status: 200,
-                                headers: WakandaHttpServiceHeaders::default(),
+                                headers: RequestHeaders::default(),
                                 body: Bytes::new(),
                             })
                         });
                 },
-                first_one_select_server_service_mock(),
+                first_one_select_server_mock(),
             );
 
             let response = router
@@ -601,13 +608,10 @@ mod tests {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
-                mock.expect_execute().returning(|_| {
-                    Err(WakandaHttpServiceError::Network(
-                        "Connection refused".to_string(),
-                    ))
-                });
+                mock.expect_execute()
+                    .returning(|_| Err(HttpClientError::Network("Connection refused".to_string())));
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -624,9 +628,9 @@ mod tests {
             target_servers(),
             |mock| {
                 mock.expect_execute()
-                    .returning(|_| Err(WakandaHttpServiceError::Timeout));
+                    .returning(|_| Err(HttpClientError::Timeout));
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -642,13 +646,10 @@ mod tests {
         let router = build_router_with_mocks(
             target_servers(),
             |mock| {
-                mock.expect_execute().returning(|_| {
-                    Err(WakandaHttpServiceError::InvalidRequest(
-                        "Bad URL".to_string(),
-                    ))
-                });
+                mock.expect_execute()
+                    .returning(|_| Err(HttpClientError::InvalidRequest("Bad URL".to_string())));
             },
-            first_one_select_server_service_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -663,8 +664,8 @@ mod tests {
     async fn proxy_endpoint_includes_request_id_in_response() {
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_wakanda_http_service_mock(),
-            first_one_select_server_service_mock(),
+            build_success_http_client_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -682,8 +683,8 @@ mod tests {
         let custom_request_id = "custom-12345";
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_wakanda_http_service_mock(),
-            first_one_select_server_service_mock(),
+            build_success_http_client_mock(),
+            first_one_select_server_mock(),
         );
 
         let response = router
@@ -706,13 +707,13 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", HeaderValue::from_static("application/json"));
 
-        let wakanda_http_service_response = WakandaHttpServiceResponse {
+        let http_client_response = HttpClientResponse {
             status: 200,
             headers: headers.into(),
             body: Bytes::from(r#"{"key":"value"}"#),
         };
 
-        let response: Response<Body> = wakanda_http_service_response.into();
+        let response: AxumResponse<Body> = http_client_response.into();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(
@@ -728,9 +729,9 @@ mod tests {
 
     #[test]
     fn converts_domain_errors_to_http_error() {
-        let network_error = WakandaHttpServiceError::Network("Connection refused".into());
-        let invalid_request = WakandaHttpServiceError::InvalidRequest("Bad data".into());
-        let timeout = WakandaHttpServiceError::Timeout;
+        let network_error = HttpClientError::Network("Connection refused".into());
+        let invalid_request = HttpClientError::InvalidRequest("Bad data".into());
+        let timeout = HttpClientError::Timeout;
 
         let (status, msg): (StatusCode, &str) = network_error.into();
         assert_eq!(status, StatusCode::BAD_GATEWAY);
@@ -749,11 +750,11 @@ mod tests {
     async fn proxy_endpoint_handles_no_one_is_alive_error() {
         let router = build_router_with_mocks(
             target_servers(),
-            build_success_wakanda_http_service_mock(),
-            |select_server_service_mock, _| {
-                select_server_service_mock
+            build_success_http_client_mock(),
+            |select_server_mock, _| {
+                select_server_mock
                     .expect_execute()
-                    .returning(move |_| Err(NoOneIsAlive));
+                    .returning(move |_| Err(SelectServerError::NoOneIsAlive));
             },
         );
 

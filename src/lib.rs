@@ -1,2 +1,2 @@
-pub mod wakanda_http_service;
-pub mod select_server_service;
+pub mod http_client;
+pub mod select_server;
