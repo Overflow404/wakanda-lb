@@ -2,7 +2,7 @@ use clap::{Parser, ValueEnum, command};
 
 #[derive(ValueEnum, Debug, Clone, PartialEq)]
 #[clap(rename_all = "kebab_case")]
-pub enum RoutingPolicy {
+pub(crate) enum RoutingPolicy {
     RoundRobin,
     Random,
 }
