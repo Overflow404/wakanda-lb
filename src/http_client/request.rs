@@ -17,12 +17,6 @@ pub struct Request {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RequestHeaders(pub HashMap<String, String>);
 
-impl RequestHeaders {
-    pub fn get(&self, key: &str) -> Option<&String> {
-        HashMap::get(self, key)
-    }
-}
-
 impl Deref for RequestHeaders {
     type Target = HashMap<String, String>;
 

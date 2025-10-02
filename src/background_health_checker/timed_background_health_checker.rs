@@ -24,7 +24,7 @@ pub(crate) struct TimedBackgroundChecker {
 }
 
 impl TimedBackgroundChecker {
-    pub fn new(
+    pub(crate) fn new(
         http_client: Arc<dyn HttpClient>,
         servers: Vec<String>,
         health_endpoint: String,

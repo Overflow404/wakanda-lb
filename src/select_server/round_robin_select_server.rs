@@ -13,7 +13,7 @@ pub(crate) struct RoundRobinSelectServer {
 }
 
 impl RoundRobinSelectServer {
-    pub fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RoundRobinSelectServer {
+    pub(crate) fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RoundRobinSelectServer {
         Self {
             target_servers,
             current_server_index: AtomicUsize::new(0),

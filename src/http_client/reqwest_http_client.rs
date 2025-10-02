@@ -6,7 +6,7 @@ use tracing::info;
 use crate::http_client::{
     error::{Error, HttpClientErrorChecker},
     http_client::HttpClient,
-    request::{RequestError, Request, RequestHeaders, RequestMethod},
+    request::{Request, RequestError, RequestHeaders, RequestMethod},
     response::Response,
 };
 
@@ -144,9 +144,7 @@ impl TryFrom<&Method> for RequestMethod {
             Method::PUT => Ok(RequestMethod::Put),
             Method::DELETE => Ok(RequestMethod::Delete),
             Method::PATCH => Ok(RequestMethod::Patch),
-            _ => Err(RequestError::UnsupportedMethod(
-                value.to_string(),
-            )),
+            _ => Err(RequestError::UnsupportedMethod(value.to_string())),
         }
     }
 }
@@ -273,9 +271,7 @@ mod tests {
 
     #[test]
     fn converts_domain_request_error_into_axum_response() {
-        let error = RequestError::UnsupportedMethod(String::from(
-            "OPTION is not supported",
-        ));
+        let error = RequestError::UnsupportedMethod(String::from("OPTION is not supported"));
         let actual_response = error.into_response();
         let expected_response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
 

@@ -11,7 +11,7 @@ pub(crate) struct RandomSelectServer {
 }
 
 impl RandomSelectServer {
-    pub fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RandomSelectServer {
+    pub(crate) fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RandomSelectServer {
         Self { target_servers }
     }
 }

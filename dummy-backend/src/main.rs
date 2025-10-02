@@ -26,7 +26,7 @@ async fn health() -> impl IntoResponse {
     "PONG"
 }
 
-pub fn router(port: u16) -> Router {
+fn router(port: u16) -> Router {
     let state = Args { port };
     Router::new()
         .route("/", get(process))
