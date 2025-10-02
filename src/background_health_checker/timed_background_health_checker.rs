@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 use tokio::time;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     background_health_checker::background_health_checker::BackgroundChecker,
