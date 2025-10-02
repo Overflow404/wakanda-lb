@@ -11,7 +11,7 @@ pub enum Error {
 }
 
 #[cfg_attr(test, mockall::automock)]
-pub trait HttpClientErrorChecker {
+pub(crate) trait HttpClientErrorChecker {
     fn is_timeout(&self) -> bool;
     fn is_connect(&self) -> bool;
     fn is_request(&self) -> bool;
