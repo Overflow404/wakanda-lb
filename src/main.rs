@@ -27,7 +27,7 @@ use axum::routing::any;
 use axum::{Router, routing::get};
 use clap::Parser;
 use http::StatusCode;
-use std::sync::Arc;
+use std::sync::{Arc};
 use std::time::Duration;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
@@ -181,6 +181,7 @@ async fn main() {
         args.target_servers_health_path,
         Duration::from_secs(args.health_checker_polling_seconds),
     ));
+
 
     let select_server: Arc<dyn SelectServer + Send + Sync> = match args.routing_policy {
         RoutingPolicy::RoundRobin => Arc::new(RoundRobinSelectServer::new(Arc::clone(

@@ -6,7 +6,7 @@ use crate::select_server::{
     error::Error, request::Request, response::Response, select_server::SelectServer,
 };
 
-pub struct RandomSelectServer {
+pub(crate) struct RandomSelectServer {
     target_servers: Arc<RwLock<Vec<String>>>,
 }
 

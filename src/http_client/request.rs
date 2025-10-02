@@ -67,7 +67,7 @@ impl Display for RequestMethod {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HttpClientRequestRequestError {
+pub enum RequestError {
     #[error("HTTP method {0} is not supported")]
     UnsupportedMethod(String),
 }

@@ -6,7 +6,7 @@ use tracing::info;
 use crate::http_client::{
     error::{Error, HttpClientErrorChecker},
     http_client::HttpClient,
-    request::{HttpClientRequestRequestError, Request, RequestHeaders, RequestMethod},
+    request::{RequestError, Request, RequestHeaders, RequestMethod},
     response::Response,
 };
 
@@ -128,14 +128,14 @@ impl From<RequestHeaders> for HeaderMap {
     }
 }
 
-impl IntoResponse for HttpClientRequestRequestError {
+impl IntoResponse for RequestError {
     fn into_response(self) -> axum::response::Response {
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 
 impl TryFrom<&Method> for RequestMethod {
-    type Error = HttpClientRequestRequestError;
+    type Error = RequestError;
 
     fn try_from(value: &Method) -> Result<Self, Self::Error> {
         match *value {
@@ -144,7 +144,7 @@ impl TryFrom<&Method> for RequestMethod {
             Method::PUT => Ok(RequestMethod::Put),
             Method::DELETE => Ok(RequestMethod::Delete),
             Method::PATCH => Ok(RequestMethod::Patch),
-            _ => Err(HttpClientRequestRequestError::UnsupportedMethod(
+            _ => Err(RequestError::UnsupportedMethod(
                 value.to_string(),
             )),
         }
@@ -170,7 +170,7 @@ mod tests {
 
     use crate::http_client::{
         error::{Error, MockHttpClientErrorChecker},
-        request::{HttpClientRequestRequestError, RequestHeaders, RequestMethod},
+        request::{RequestError, RequestHeaders, RequestMethod},
     };
 
     #[test]
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn converts_domain_request_error_into_axum_response() {
-        let error = HttpClientRequestRequestError::UnsupportedMethod(String::from(
+        let error = RequestError::UnsupportedMethod(String::from(
             "OPTION is not supported",
         ));
         let actual_response = error.into_response();
@@ -311,7 +311,7 @@ mod tests {
 
         let err = RequestMethod::try_from(&Method::OPTIONS).unwrap_err();
         match err {
-            HttpClientRequestRequestError::UnsupportedMethod(m) => {
+            RequestError::UnsupportedMethod(m) => {
                 assert_eq!(m, "OPTIONS".to_string())
             }
         }

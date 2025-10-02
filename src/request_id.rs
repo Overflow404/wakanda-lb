@@ -7,7 +7,7 @@ pub const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 pub const UNKNOWN_REQUEST_ID: &str = "unknown";
 
 #[derive(Clone, Default)]
-pub struct LoadBalancerRequestId {}
+pub(crate) struct LoadBalancerRequestId {}
 
 impl MakeRequestId for LoadBalancerRequestId {
     fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {

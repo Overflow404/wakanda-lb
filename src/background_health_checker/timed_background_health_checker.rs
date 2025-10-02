@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-pub struct TimedBackgroundChecker {
+pub(crate) struct TimedBackgroundChecker {
     pub http_client: Arc<dyn HttpClient>,
     pub all_servers: Vec<String>,
     pub healthy_servers: Arc<RwLock<Vec<String>>>,

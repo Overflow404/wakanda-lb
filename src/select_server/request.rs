@@ -1,1 +1,1 @@
-pub struct Request {}
+pub(crate) struct Request {}
