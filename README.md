@@ -76,3 +76,9 @@ This will launch:
 └─────────┘ └─────────┘
 
 ```
+
+# Run benchmark
+Add how many times
+```bash
+./benchmark.sh <max_request_count> <url>
+```
