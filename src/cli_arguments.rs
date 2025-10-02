@@ -11,19 +11,19 @@ pub(crate) enum RoutingPolicy {
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArguments {
     #[arg(short, long, default_value = "3000")]
-    pub port: u16,
+    pub(crate) port: u16,
 
     #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ',')]
-    pub target_servers: Vec<String>,
+    pub(crate) target_servers: Vec<String>,
 
     #[clap(short, long, value_enum, default_value = "round-robin")]
-    pub routing_policy: RoutingPolicy,
+    pub(crate) routing_policy: RoutingPolicy,
 
     #[arg(long, default_value = "/health")]
-    pub target_servers_health_path: String,
+    pub(crate) target_servers_health_path: String,
 
     #[arg(long, default_value = "10")]
-    pub health_checker_polling_seconds: u64,
+    pub(crate) health_checker_polling_seconds: u64,
 }
 
 #[cfg(test)]

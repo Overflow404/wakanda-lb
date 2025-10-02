@@ -183,12 +183,12 @@ async fn main() {
     ));
 
     let select_server: Arc<dyn SelectServer + Send + Sync> = match args.routing_policy {
-        RoutingPolicy::RoundRobin => Arc::new(RoundRobinSelectServer::new(Arc::clone(
-            &background_checker.healthy_servers,
-        ))),
-        RoutingPolicy::Random => Arc::new(RandomSelectServer::new(Arc::clone(
-            &background_checker.healthy_servers,
-        ))),
+        RoutingPolicy::RoundRobin => Arc::new(RoundRobinSelectServer::new(
+            background_checker.get_healthy_servers(),
+        )),
+        RoutingPolicy::Random => Arc::new(RandomSelectServer::new(
+            background_checker.get_healthy_servers(),
+        )),
     };
 
     let state = ServerState {

@@ -16,11 +16,11 @@ use crate::{
 };
 
 pub(crate) struct TimedBackgroundChecker {
-    pub http_client: Arc<dyn HttpClient>,
-    pub all_servers: Vec<String>,
-    pub healthy_servers: Arc<RwLock<Vec<String>>>,
-    pub health_endpoint: String,
-    pub polling_interval: Duration,
+    http_client: Arc<dyn HttpClient>,
+    all_servers: Vec<String>,
+    healthy_servers: Arc<RwLock<Vec<String>>>,
+    health_endpoint: String,
+    polling_interval: Duration,
 }
 
 impl TimedBackgroundChecker {
@@ -38,6 +38,10 @@ impl TimedBackgroundChecker {
             health_endpoint,
             polling_interval,
         }
+    }
+
+    pub(crate) fn get_healthy_servers(&self) -> Arc<RwLock<Vec<String>>> {
+        Arc::clone(&self.healthy_servers)
     }
 
     async fn is_server_healthy(&self, server: &str) -> bool {
