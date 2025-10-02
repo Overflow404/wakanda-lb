@@ -50,8 +50,6 @@ async fn proxy_endpoint(
     State(state): State<ServerState>,
     request: AxumRequest<Body>,
 ) -> impl IntoResponse {
-    info!("Proxing request");
-
     let (parts, body) = request.into_parts();
 
     let server = match state.select_server.execute(SelectServerRequest {}) {
@@ -177,15 +175,12 @@ async fn main() {
     let http_client = Arc::new(ReqwestHttpClient::default());
     let target_servers = Arc::new(RwLock::new(Vec::from(args.target_servers)));
 
-    let select_server: Arc<dyn SelectServer + Send + Sync> =
-        match args.routing_policy {
-            RoutingPolicy::RoundRobin => Arc::new(RoundRobinSelectServer::new(Arc::clone(
-                &target_servers,
-            ))),
-            RoutingPolicy::Random => {
-                Arc::new(RandomSelectServer::new(Arc::clone(&target_servers)))
-            }
-        };
+    let select_server: Arc<dyn SelectServer + Send + Sync> = match args.routing_policy {
+        RoutingPolicy::RoundRobin => {
+            Arc::new(RoundRobinSelectServer::new(Arc::clone(&target_servers)))
+        }
+        RoutingPolicy::Random => Arc::new(RandomSelectServer::new(Arc::clone(&target_servers))),
+    };
 
     let state = ServerState {
         http_client,
@@ -195,8 +190,8 @@ async fn main() {
     let background_checker = Arc::new(TimedBackgroundChecker {
         http_client: Arc::new(ReqwestHttpClient::default()),
         target_servers: Arc::clone(&target_servers),
-        health_endpoint: String::from("/health"),
-        polling_interval: Duration::from_secs(10),
+        health_endpoint: args.target_servers_health_path,
+        polling_interval: Duration::from_secs(args.health_checker_polling_seconds),
     });
 
     tokio::spawn(async move {
@@ -210,11 +205,11 @@ async fn main() {
 mod tests {
 
     use crate::http_client::error::Error as HttpClientError;
-    use crate::select_server::error::Error as SelectServerError;
     use crate::http_client::http_client::MockHttpClient;
     use crate::http_client::request::{RequestHeaders, RequestMethod};
     use crate::http_client::response::Response as HttpClientResponse;
-    use crate::select_server::response::Response  as SelectServerResponse;
+    use crate::select_server::error::Error as SelectServerError;
+    use crate::select_server::response::Response as SelectServerResponse;
     use crate::select_server::select_server::MockSelectServer;
     use crate::{ServerState, X_REQUEST_ID, router};
     use axum::body::{Body, Bytes};
@@ -257,18 +252,15 @@ mod tests {
             });
         }
     }
-    fn first_one_select_server_mock()
-    -> impl FnOnce(&mut MockSelectServer, Vec<String>) {
+    fn first_one_select_server_mock() -> impl FnOnce(&mut MockSelectServer, Vec<String>) {
         |select_server_mock, target_servers| {
             let first_server = target_servers.clone().get(0).unwrap().clone();
 
-            select_server_mock
-                .expect_execute()
-                .returning(move |_| {
-                    Ok(SelectServerResponse {
-                        server: first_server.clone(),
-                    })
-                });
+            select_server_mock.expect_execute().returning(move |_| {
+                Ok(SelectServerResponse {
+                    server: first_server.clone(),
+                })
+            });
         }
     }
 

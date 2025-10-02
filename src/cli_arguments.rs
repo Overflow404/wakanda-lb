@@ -18,6 +18,12 @@ pub(crate) struct CliArguments {
 
     #[clap(short, long, value_enum, default_value = "round-robin")]
     pub routing_policy: RoutingPolicy,
+
+    #[arg(long, default_value = "/health")]
+    pub target_servers_health_path: String,
+
+    #[arg(long, default_value = "10")]
+    pub health_checker_polling_seconds: u64,
 }
 
 #[cfg(test)]
@@ -36,6 +42,10 @@ mod test {
             "http://localhost:9000,http://localhost:9001",
             "--routing-policy",
             "random",
+            "--target-servers-health-path",
+            "/ready",
+            "--health-checker-polling-seconds",
+            "10",
         ]);
 
         assert_eq!(args.port, 3000);
@@ -44,6 +54,8 @@ mod test {
             Vec::from(["http://localhost:9000", "http://localhost:9001"])
         );
         assert_eq!(args.routing_policy, RoutingPolicy::Random);
+        assert_eq!(args.target_servers_health_path, "/ready");
+        assert_eq!(args.health_checker_polling_seconds, 10);
     }
 
     #[test]
@@ -76,11 +88,32 @@ mod test {
             "http://localhost:9000,http://localhost:9001",
         ]);
 
-        assert_eq!(args.port, 3000);
-        assert_eq!(
-            args.target_servers,
-            Vec::from(["http://localhost:9000", "http://localhost:9001"])
-        );
         assert_eq!(args.routing_policy, RoutingPolicy::RoundRobin);
+    }
+
+    #[test]
+    fn target_servers_health_path_should_default_to_health() {
+        let args = CliArguments::parse_from([
+            "load-balancer",
+            "-p",
+            "3000",
+            "-t",
+            "http://localhost:9000,http://localhost:9001",
+        ]);
+
+        assert_eq!(args.target_servers_health_path, "/health");
+    }
+
+    #[test]
+    fn health_checker_polling_seconds_should_default_to_10() {
+        let args = CliArguments::parse_from([
+            "load-balancer",
+            "-p",
+            "3000",
+            "-t",
+            "http://localhost:9000,http://localhost:9001",
+        ]);
+
+        assert_eq!(args.health_checker_polling_seconds, 10);
     }
 }

@@ -28,15 +28,18 @@ cargo test
 load-balancer [OPTIONS]
 
 Options:
-  -p, --port <PORT>               Port to listen on
-  -t, --target-servers <SERVERS>  Comma-separated list of backend servers
-                                  Example: http://server1:8000,http://server2:8000
-  -r, --routing-policy <POLICY>   Load balancing strategy [default: round-robin]
-                                  Possible values:
-                                    - round-robin: Distribute requests evenly
-                                    - random:      Random server selection
-  -h, --help                      Print help
-  -V, --version                   Print version
+  -p, --port <PORT>                             Port to listen on
+  -t, --target-servers <SERVERS>                Comma-separated list of backend servers
+                                                Example: http://server1:8000,http://server2:8000
+  -r, --routing-policy <POLICY>                 Load balancing strategy [default: round-robin]
+                                                Possible values:
+                                                - round-robin: Distribute requests evenly
+                                                - random:      Random server selection
+  --target-servers-health-path <PATH>           Path to check backend server health [default: /health]
+  --health-checker-polling-seconds <SECONDS>    Polling interval for health checks in seconds [default: 10]
+  -h, --help                                    Print help
+  -V, --version                                 Print version
+
 ```
 
 # Run a Full Containerized Mock Environment
