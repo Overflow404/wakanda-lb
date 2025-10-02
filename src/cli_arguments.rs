@@ -10,7 +10,7 @@ pub enum RoutingPolicy {
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub(crate) struct CliArguments {
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "3000")]
     pub port: u16,
 
     #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ',')]
@@ -82,8 +82,6 @@ mod test {
     fn routing_policy_should_default_to_round_robin() {
         let args = CliArguments::parse_from([
             "load-balancer",
-            "-p",
-            "3000",
             "-t",
             "http://localhost:9000,http://localhost:9001",
         ]);
@@ -95,8 +93,6 @@ mod test {
     fn target_servers_health_path_should_default_to_health() {
         let args = CliArguments::parse_from([
             "load-balancer",
-            "-p",
-            "3000",
             "-t",
             "http://localhost:9000,http://localhost:9001",
         ]);
@@ -108,12 +104,21 @@ mod test {
     fn health_checker_polling_seconds_should_default_to_10() {
         let args = CliArguments::parse_from([
             "load-balancer",
-            "-p",
-            "3000",
             "-t",
             "http://localhost:9000,http://localhost:9001",
         ]);
 
         assert_eq!(args.health_checker_polling_seconds, 10);
+    }
+
+    #[test]
+    fn port_should_default_to_3000() {
+        let args = CliArguments::parse_from([
+            "load-balancer",
+            "-t",
+            "http://localhost:9000,http://localhost:9001",
+        ]);
+
+        assert_eq!(args.port, 3000);
     }
 }

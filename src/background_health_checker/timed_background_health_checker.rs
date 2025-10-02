@@ -52,7 +52,6 @@ impl TimedBackgroundChecker {
         {
             Ok(Ok(response)) => {
                 if response.status == 200 {
-                    debug!("Server {} is healthy", server);
                     true
                 } else {
                     warn!(
@@ -105,6 +104,8 @@ impl BackgroundChecker for TimedBackgroundChecker {
                 if self.is_server_healthy(server).await {
                     new_healthy_servers.push(server.clone());
                     info!("✓ Server {} is healthy", server);
+                } else {
+                    info!("✖ Server {} is unhealthy", server);
                 }
             }
 
@@ -137,7 +138,7 @@ impl BackgroundChecker for TimedBackgroundChecker {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use bytes::Bytes;

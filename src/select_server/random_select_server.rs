@@ -1,11 +1,9 @@
-use std::sync::{
-    Arc, RwLock,
-};
+use std::sync::{Arc, RwLock};
 
 use rand::Rng;
 
 use crate::select_server::{
-    error::Error, select_server::SelectServer, request::Request, response::Response
+    error::Error, request::Request, response::Response, select_server::SelectServer,
 };
 
 pub struct RandomSelectServer {
@@ -19,10 +17,7 @@ impl RandomSelectServer {
 }
 
 impl SelectServer for RandomSelectServer {
-    fn execute(
-        &self,
-        _request: Request,
-    ) -> Result<Response, Error> {
+    fn execute(&self, _request: Request) -> Result<Response, Error> {
         let target_servers = self
             .target_servers
             .read()
@@ -46,17 +41,15 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use crate::select_server::{
-        error::Error, random_select_server::RandomSelectServer, select_server::SelectServer, request::Request
+        error::Error, random_select_server::RandomSelectServer, request::Request,
+        select_server::SelectServer,
     };
 
     #[test]
     fn should_return_an_error_if_empty_targets() {
         let random_select_server = RandomSelectServer::new(Arc::new(RwLock::new(Vec::new())));
 
-        let error = random_select_server
-            .execute(Request {})
-            .err()
-            .unwrap();
+        let error = random_select_server.execute(Request {}).err().unwrap();
 
         assert_eq!(error, Error::NoOneIsAlive)
     }

@@ -1,6 +1,6 @@
 # Wakanda-LB
 Solution of [this](https://codingchallenges.fyi/challenges/challenge-load-balancer/) coding challenge.
-A lightweight, thread-safe HTTP load balancer built with Rust, designed for high throughput and low latency. It distributes incoming HTTP requests across multiple backend servers using configurable routing strategies.
+A lightweight HTTP load balancer built with Rust, designed for high throughput and low latency. It distributes incoming HTTP requests across multiple backend servers using configurable routing strategies.
 
 ---
 
@@ -28,7 +28,7 @@ cargo test
 load-balancer [OPTIONS]
 
 Options:
-  -p, --port <PORT>                             Port to listen on
+  -p, --port <PORT>                             Port to listen on [default: 3000]
   -t, --target-servers <SERVERS>                Comma-separated list of backend servers
                                                 Example: http://server1:8000,http://server2:8000
   -r, --routing-policy <POLICY>                 Load balancing strategy [default: round-robin]
@@ -48,11 +48,10 @@ You can start a full mock environment with dummy backend servers using Docker:
 make all
 ```
 This will launch:
-
 - Wakanda-LB on port 3000
 - Two dummy backend servers on ports 9000 and 9001
 
-# Architecture
+# Mock Environment Architecture
 ```bash
     ┌─────────────┐
     │   Client    │
@@ -77,5 +76,3 @@ This will launch:
 └─────────┘ └─────────┘
 
 ```
-
-

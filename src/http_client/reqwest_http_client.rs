@@ -4,11 +4,9 @@ use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use tracing::info;
 
 use crate::http_client::{
-    http_client::HttpClient,
     error::{Error, HttpClientErrorChecker},
-    request::{
-        RequestHeaders, Request, RequestMethod, HttpClientRequestRequestError
-    },
+    http_client::HttpClient,
+    request::{HttpClientRequestRequestError, Request, RequestHeaders, RequestMethod},
     response::Response,
 };
 
@@ -37,11 +35,8 @@ impl Default for ReqwestHttpClient {
 
 #[async_trait]
 impl HttpClient for ReqwestHttpClient {
-    async fn execute(
-        &self,
-        request: Request,
-    ) -> Result<Response, Error> {
-        info!("Proxying {:#?}", request);
+    async fn execute(&self, request: Request) -> Result<Response, Error> {
+        info!("Sending {:?}", request);
 
         let reqwuest_builder = self
             .client
@@ -49,10 +44,7 @@ impl HttpClient for ReqwestHttpClient {
             .headers(request.headers.into())
             .body(request.body);
 
-        let reqwest_response = reqwuest_builder
-            .send()
-            .await
-            .map_err(Error::from)?;
+        let reqwest_response = reqwuest_builder.send().await.map_err(Error::from)?;
 
         let http_status = reqwest_response.status().as_u16();
 
@@ -178,9 +170,7 @@ mod tests {
 
     use crate::http_client::{
         error::{Error, MockHttpClientErrorChecker},
-        request::{
-            RequestHeaders, RequestMethod, HttpClientRequestRequestError
-        },
+        request::{HttpClientRequestRequestError, RequestHeaders, RequestMethod},
     };
 
     #[test]
@@ -329,25 +319,10 @@ mod tests {
 
     #[test]
     fn converts_http_methods_into_domain_http_methods() {
-        assert_eq!(
-            Method::from(RequestMethod::Get),
-            Method::GET
-        );
-        assert_eq!(
-            Method::from(RequestMethod::Post),
-            Method::POST
-        );
-        assert_eq!(
-            Method::from(RequestMethod::Put),
-            Method::PUT
-        );
-        assert_eq!(
-            Method::from(RequestMethod::Delete),
-            Method::DELETE
-        );
-        assert_eq!(
-            Method::from(RequestMethod::Patch),
-            Method::PATCH
-        );
+        assert_eq!(Method::from(RequestMethod::Get), Method::GET);
+        assert_eq!(Method::from(RequestMethod::Post), Method::POST);
+        assert_eq!(Method::from(RequestMethod::Put), Method::PUT);
+        assert_eq!(Method::from(RequestMethod::Delete), Method::DELETE);
+        assert_eq!(Method::from(RequestMethod::Patch), Method::PATCH);
     }
 }

@@ -59,7 +59,8 @@ mod tests {
 
     #[test]
     fn should_return_an_error_if_empty_targets() {
-        let round_robin_select_server = RoundRobinSelectServer::new(Arc::new(RwLock::new(Vec::new())));
+        let round_robin_select_server =
+            RoundRobinSelectServer::new(Arc::new(RwLock::new(Vec::new())));
 
         let error = round_robin_select_server.execute(Request {}).err().unwrap();
 
@@ -71,24 +72,37 @@ mod tests {
         let server1 = String::from("server1");
         let server2 = String::from("server2");
 
-        let round_robin_select_server = RoundRobinSelectServer::new(Arc::new(RwLock::new(Vec::from([
-            server1.clone(),
-            server2.clone(),
-        ]))));
+        let round_robin_select_server =
+            RoundRobinSelectServer::new(Arc::new(RwLock::new(Vec::from([
+                server1.clone(),
+                server2.clone(),
+            ]))));
 
-        let mut result = round_robin_select_server.execute(Request {}).unwrap().server;
+        let mut result = round_robin_select_server
+            .execute(Request {})
+            .unwrap()
+            .server;
 
         assert_eq!(result, server1);
 
-        result = round_robin_select_server.execute(Request {}).unwrap().server;
+        result = round_robin_select_server
+            .execute(Request {})
+            .unwrap()
+            .server;
 
         assert_eq!(result, server2);
 
-        result = round_robin_select_server.execute(Request {}).unwrap().server;
+        result = round_robin_select_server
+            .execute(Request {})
+            .unwrap()
+            .server;
 
         assert_eq!(result, server1);
 
-        result = round_robin_select_server.execute(Request {}).unwrap().server;
+        result = round_robin_select_server
+            .execute(Request {})
+            .unwrap()
+            .server;
 
         assert_eq!(result, server2);
     }

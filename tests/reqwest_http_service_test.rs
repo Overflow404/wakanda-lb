@@ -4,11 +4,9 @@ mod reqwest_http_client {
     use bytes::Bytes;
 
     use load_balancer::http_client::error::Error;
-    use load_balancer::http_client::reqwest_http_client::ReqwestHttpClient;
     use load_balancer::http_client::http_client::HttpClient;
-    use load_balancer::http_client::request::{
-        RequestHeaders, Request, RequestMethod,
-    };
+    use load_balancer::http_client::request::{Request, RequestHeaders, RequestMethod};
+    use load_balancer::http_client::reqwest_http_client::ReqwestHttpClient;
 
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -41,18 +39,12 @@ mod reqwest_http_client {
             body: Bytes::new(),
         };
 
-        let http_client_response = http_client
-            .execute(http_client_request)
-            .await
-            .unwrap();
+        let http_client_response = http_client.execute(http_client_request).await.unwrap();
 
         assert_eq!(http_client_response.status, 200);
         assert_eq!(http_client_response.body, Bytes::from("OK"));
         assert_eq!(
-            http_client_response
-                .headers
-                .get("x-request-id")
-                .unwrap(),
+            http_client_response.headers.get("x-request-id").unwrap(),
             "12345"
         );
     }
@@ -84,17 +76,11 @@ mod reqwest_http_client {
             body: Bytes::from("OK"),
         };
 
-        let http_client_response = http_client
-            .execute(http_client_request)
-            .await
-            .unwrap();
+        let http_client_response = http_client.execute(http_client_request).await.unwrap();
 
         assert_eq!(http_client_response.status, 201);
         assert_eq!(
-            http_client_response
-                .headers
-                .get("x-request-id")
-                .unwrap(),
+            http_client_response.headers.get("x-request-id").unwrap(),
             "12345"
         );
         assert_eq!(http_client_response.body, Bytes::from("Created"));
@@ -114,9 +100,7 @@ mod reqwest_http_client {
             body: Bytes::new(),
         };
 
-        let http_client_response = http_client
-            .execute(http_client_request)
-            .await;
+        let http_client_response = http_client.execute(http_client_request).await;
 
         assert!(http_client_response.is_err());
         assert!(matches!(
@@ -150,15 +134,10 @@ mod reqwest_http_client {
             body: Bytes::new(),
         };
 
-        let http_client_response = http_client
-            .execute(http_client_request)
-            .await;
+        let http_client_response = http_client.execute(http_client_request).await;
 
         assert!(http_client_response.is_err());
-        assert!(matches!(
-            http_client_response.unwrap_err(),
-            Error::Timeout
-        ));
+        assert!(matches!(http_client_response.unwrap_err(), Error::Timeout));
     }
 
     #[tokio::test]
@@ -186,10 +165,7 @@ mod reqwest_http_client {
                 body: Bytes::new(),
             };
 
-            let http_client_response = http_client
-                .execute(http_client_request)
-                .await
-                .unwrap();
+            let http_client_response = http_client.execute(http_client_request).await.unwrap();
 
             assert_eq!(http_client_response.status, 200);
         }
