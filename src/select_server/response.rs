@@ -1,3 +1,3 @@
-pub(crate) struct Response {
-    pub(crate) server: String,
+pub struct Response {
+    pub server: String,
 }

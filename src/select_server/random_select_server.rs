@@ -6,12 +6,12 @@ use crate::select_server::{
     error::Error, request::Request, response::Response, select_server::SelectServer,
 };
 
-pub(crate) struct RandomSelectServer {
+pub struct RandomSelectServer {
     target_servers: Arc<RwLock<Vec<String>>>,
 }
 
 impl RandomSelectServer {
-    pub(crate) fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RandomSelectServer {
+    pub fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RandomSelectServer {
         Self { target_servers }
     }
 }

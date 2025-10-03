@@ -7,13 +7,13 @@ use crate::select_server::{
     error::Error, request::Request, response::Response, select_server::SelectServer,
 };
 
-pub(crate) struct RoundRobinSelectServer {
+pub struct RoundRobinSelectServer {
     target_servers: Arc<RwLock<Vec<String>>>,
     current_server_index: AtomicUsize,
 }
 
 impl RoundRobinSelectServer {
-    pub(crate) fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RoundRobinSelectServer {
+    pub fn new(target_servers: Arc<RwLock<Vec<String>>>) -> RoundRobinSelectServer {
         Self {
             target_servers,
             current_server_index: AtomicUsize::new(0),
