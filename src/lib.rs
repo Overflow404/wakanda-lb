@@ -10,12 +10,12 @@ use crate::http_client::response::Response as HttpClientResponse;
 use crate::request_id::{LoadBalancerRequestId, UNKNOWN_REQUEST_ID, X_REQUEST_ID};
 use crate::select_server::request::Request as SelectServerRequest;
 
-use axum::body::{Body, to_bytes};
+use axum::body::{to_bytes, Body};
 use axum::extract::Request as AxumRequest;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use http::StatusCode;
 use std::sync::Arc;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
@@ -153,7 +153,6 @@ pub fn router(server_state: ServerState) -> Router {
 
 #[cfg(test)]
 mod tests {
-
     use crate::http_client::error::Error as HttpClientError;
     use crate::http_client::http_client::MockHttpClient;
     use crate::http_client::request::{RequestHeaders, RequestMethod};
@@ -161,7 +160,7 @@ mod tests {
     use crate::select_server::error::Error as SelectServerError;
     use crate::select_server::response::Response as SelectServerResponse;
     use crate::select_server::select_server::MockSelectServer;
-    use crate::{ServerState, X_REQUEST_ID, router};
+    use crate::{router, ServerState, X_REQUEST_ID};
     use axum::body::{Body, Bytes};
     use axum::http::{Method, Request, StatusCode};
     use axum::response::Response as AxumResponse;
